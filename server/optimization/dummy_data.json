@@ -1,0 +1,132 @@
+{
+  "labs": [
+    {
+      "id": 1,
+      "name": "TL1 (106)",
+      "capacity": 84,
+      "has_gpu": true
+    },
+    {
+      "id": 2,
+      "name": "TL2 (105)",
+      "capacity": 20,
+      "has_gpu": false
+    },
+    {
+      "id": 3,
+      "name": "ED1 (312)",
+      "capacity": 32,
+      "has_gpu": false
+    },
+    {
+      "id": 4,
+      "name": "ED1 (308)",
+      "capacity": 32,
+      "has_gpu": false
+    },
+    {
+      "id": 5,
+      "name": "ED1 (320)",
+      "capacity": 80,
+      "has_gpu": false
+    },
+    {
+      "id": 6,
+      "name": "ED2 (302)",
+      "capacity": 80,
+      "has_gpu": false
+    }
+  ],
+  "courses": [
+    {
+      "code": "CS201",
+      "student_count": 55,
+      "gpu_required": false,
+      "academic_year": "2nd Year",
+      "instructor": "Dr. Smith",
+      "duration": 3
+    },
+    {
+      "code": "AI301",
+      "student_count": 35,
+      "gpu_required": true,
+      "academic_year": "3rd Year",
+      "instructor": "Dr. Alan",
+      "duration": 3
+    },
+    {
+      "code": "DB401",
+      "student_count": 50,
+      "gpu_required": false,
+      "academic_year": "4th Year",
+      "instructor": "Dr. Jane",
+      "duration": 3
+    },
+    {
+      "code": "NW301",
+      "student_count": 55,
+      "gpu_required": false,
+      "academic_year": "3rd Year",
+      "instructor": "Dr. Alan",
+      "duration": 3
+    },
+    {
+      "code": "ML401",
+      "student_count": 30,
+      "gpu_required": true,
+      "academic_year": "4th Year",
+      "instructor": "Dr. Jane",
+      "duration": 3
+    },
+    {
+      "code": "CS403",
+      "student_count": 40,
+      "gpu_required": true,
+      "academic_year": "4th",
+      "instructor": "dr. diman",
+      "duration": 2
+    }
+  ],
+  "slots": [
+    {
+      "id": 1,
+      "code": "N"
+    },
+    {
+      "id": 2,
+      "code": "O"
+    },
+    {
+      "id": 3,
+      "code": "V"
+    },
+    {
+      "id": 4,
+      "code": "W"
+    },
+    {
+      "id": 5,
+      "code": "P"
+    },
+    {
+      "id": 6,
+      "code": "Q"
+    },
+    {
+      "id": 7,
+      "code": "R"
+    },
+    {
+      "id": 8,
+      "code": "S"
+    },
+    {
+      "id": 9,
+      "code": "T"
+    },
+    {
+      "id": 10,
+      "code": "U"
+    }
+  ]
+}
