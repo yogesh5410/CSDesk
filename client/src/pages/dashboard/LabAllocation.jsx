@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { 
   FlaskConical, Cpu, Users, Clock, Calendar, CheckCircle2, 
   AlertCircle, RefreshCw, LayoutGrid, Database, Play, TableProperties,
-  Plus, Save, GraduationCap, X, User
+  Plus, Save, GraduationCap, X, User, Upload, FileText
 } from "lucide-react";
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -26,8 +26,13 @@ const LabAllocation = () => {
   const [showAddCourse, setShowAddCourse] = useState(false);
   const [showAddLab, setShowAddLab] = useState(false);
   
-  const [newCourse, setNewCourse] = useState({ code: '', student_count: '', gpu_required: false, academic_year: '', instructor: '', duration: 3 });
+  const [newCourse, setNewCourse] = useState({ code: '', name: '', student_count: '', gpu_required: false, academic_year: '', instructor: '', duration: 3 });
   const [newLab, setNewLab] = useState({ name: '', capacity: '', has_gpu: false });
+
+  // PDF Upload states
+  const [isUploading, setIsUploading] = useState(false);
+  const [extractedCourses, setExtractedCourses] = useState([]);
+  const [showExtractedReview, setShowExtractedReview] = useState(false);
 
   // Fetch initial data
   useEffect(() => {
@@ -74,7 +79,7 @@ const LabAllocation = () => {
       courses: [...data.courses, { ...newCourse, student_count: parseInt(newCourse.student_count), duration: parseInt(newCourse.duration) }]
     });
     setShowAddCourse(false);
-    setNewCourse({ code: '', student_count: '', gpu_required: false, academic_year: '', instructor: '', duration: 3 });
+    setNewCourse({ code: '', name: '', student_count: '', gpu_required: false, academic_year: '', instructor: '', duration: 3 });
   };
 
   const handleAddLab = (e) => {
@@ -90,6 +95,75 @@ const LabAllocation = () => {
     });
     setShowAddLab(false);
     setNewLab({ name: '', capacity: '', has_gpu: false });
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch('/api/optimization/parse-pdf', {
+        method: 'POST',
+        body: formData
+      });
+      const result = await response.json();
+      
+      if (response.ok && result.courses) {
+        // Prepare courses with missing manual fields
+        const coursesWithEmptyFields = result.courses.map(c => ({
+          ...c,
+          student_count: '',
+          academic_year: '1st Year',
+          gpu_required: false,
+          id: Math.random().toString(36).substr(2, 9)
+        }));
+        setExtractedCourses(coursesWithEmptyFields);
+        setShowExtractedReview(true);
+      } else {
+        alert("Failed to parse PDF: " + (result.error || "Unknown error"));
+      }
+    } catch (err) {
+      alert("Upload failed: " + err.message);
+    } finally {
+      setIsUploading(false);
+      e.target.value = null; // reset file input
+    }
+  };
+
+  const handleUpdateExtractedCourse = (id, field, value) => {
+    setExtractedCourses(prev => 
+      prev.map(c => c.id === id ? { ...c, [field]: value } : c)
+    );
+  };
+
+  const handleAddExtractedCourses = () => {
+    // Validate
+    const invalid = extractedCourses.find(c => !c.student_count || !c.academic_year);
+    if (invalid) {
+      alert("Please fill student strength and year for all extracted courses!");
+      return;
+    }
+    
+    
+    // Extracting all valid courses from PDF and dropping the temp 'id'
+    const readyToAdd = extractedCourses.map(({ id, ...rest }) => ({
+      ...rest,
+      student_count: parseInt(rest.student_count),
+      duration: parseInt(rest.duration)
+    }));
+    
+    // OVERWRITE existing courses as requested by user
+    setData({
+      ...data,
+      courses: readyToAdd
+    });
+    
+    setShowExtractedReview(false);
+    setExtractedCourses([]);
   };
 
   const getSlotAllocations = (slotCode) => {
@@ -122,7 +196,12 @@ const LabAllocation = () => {
       {/* Tab: Data Source */}
       {activeTab === 'data' && (
         <div className="space-y-6 animate-in fade-in duration-300">
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-3 flex-wrap">
+              <label className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm cursor-pointer">
+                {isUploading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {isUploading ? "Parsing PDF..." : "Upload Timetable PDF"}
+                <input type="file" accept="application/pdf" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+              </label>
              <button onClick={() => setShowAddLab(true)} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-5 py-2.5 rounded-xl font-medium transition-all shadow-sm">
                 <Plus className="h-4 w-4" /> Add Lab
               </button>
@@ -146,7 +225,7 @@ const LabAllocation = () => {
                 <table className="w-full text-left text-sm whitespace-nowrap">
                   <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-100">
                     <tr>
-                      <th className="p-4">Course Code</th>
+                      <th className="p-4">Course</th>
                       <th className="p-4">Year</th>
                       <th className="p-4">Strength</th>
                       <th className="p-4">Duration (Hrs)</th>
@@ -157,7 +236,10 @@ const LabAllocation = () => {
                   <tbody className="divide-y divide-slate-50">
                     {data.courses.map(course => (
                       <tr key={course.code} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-4 font-bold text-indigo-600">{course.code}</td>
+                        <td className="p-4">
+                          <div className="font-bold text-indigo-600">{course.code}</div>
+                          {course.name && <div className="text-xs text-slate-500 font-medium truncate max-w-[150px] mt-0.5">{course.name}</div>}
+                        </td>
                         <td className="p-4 text-slate-700"><div className="flex items-center gap-2"><GraduationCap className="h-4 w-4 text-slate-400"/> {course.academic_year}</div></td>
                         <td className="p-4 text-slate-600">{course.student_count}</td>
                         <td className="p-4 text-slate-600">{course.duration} Hours</td>
@@ -268,6 +350,7 @@ const LabAllocation = () => {
                                 <div className="flex justify-between items-start mb-2">
                                   <div className="font-black text-indigo-700 text-lg">{alloc.course}</div>
                                 </div>
+                                {alloc.name && <div className="text-xs font-semibold text-indigo-500 mb-2 truncate" title={alloc.name}>{alloc.name}</div>}
                                 {alloc.year && <div className="text-xs font-bold text-slate-500 mb-2 uppercase">{alloc.year}</div>}
                                 {alloc.instructor && <div className="text-sm text-slate-700 font-medium flex items-center gap-1.5 mb-2"><User className="h-4 w-4 text-slate-400" /> {alloc.instructor}</div>}
                                 <div className="text-sm text-slate-600 mt-3 pt-3 border-t flex items-center gap-2"><LayoutGrid className="h-4 w-4 text-slate-400" />{alloc.lab}</div>
@@ -286,6 +369,7 @@ const LabAllocation = () => {
                                 <div className="flex justify-between items-start mb-2">
                                   <div className="font-black text-blue-700 text-lg">{alloc.course}</div>
                                 </div>
+                                {alloc.name && <div className="text-xs font-semibold text-blue-500 mb-2 truncate" title={alloc.name}>{alloc.name}</div>}
                                 {alloc.year && <div className="text-xs font-bold text-slate-500 mb-2 uppercase">{alloc.year}</div>}
                                 {alloc.instructor && <div className="text-sm text-slate-700 font-medium flex items-center gap-1.5 mb-2"><User className="h-4 w-4 text-slate-400" /> {alloc.instructor}</div>}
                                 <div className="text-sm text-slate-600 mt-3 pt-3 border-t flex items-center gap-2"><LayoutGrid className="h-4 w-4 text-slate-400" />{alloc.lab}</div>
@@ -327,6 +411,10 @@ const LabAllocation = () => {
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Course Code</label>
                   <input required type="text" value={newCourse.code} onChange={e => setNewCourse({...newCourse, code: e.target.value})} className="w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="e.g. CS201" />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Course Name</label>
+                  <input type="text" value={newCourse.name} onChange={e => setNewCourse({...newCourse, name: e.target.value})} className="w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="e.g. Data Structures" />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Academic Year</label>
@@ -391,6 +479,102 @@ const LabAllocation = () => {
                 <button type="submit" className="px-5 py-2 font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors">Add Lab</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Extracted Courses Review Modal */}
+      {showExtractedReview && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-5xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-indigo-500" />
+                  Review Extracted Courses
+                </h2>
+                <p className="text-sm text-slate-500 mt-1">We parsed the PDF and found these CS/CSL lab courses. Please assign the missing metadata before importing.</p>
+              </div>
+              <button onClick={() => setShowExtractedReview(false)} className="text-slate-400 hover:text-slate-600"><X className="h-6 w-6" /></button>
+            </div>
+            
+            <div className="overflow-y-auto p-6 bg-slate-50/50 flex-1">
+              {extractedCourses.length === 0 ? (
+                <div className="text-center py-10 text-slate-500">No lab courses found in the PDF.</div>
+              ) : (
+                <div className="space-y-4">
+                  {extractedCourses.map((c, i) => (
+                    <div key={c.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col xl:flex-row gap-4 items-center">
+                      {/* Extracted Data (Read-only) */}
+                      <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
+                        <div>
+                          <div className="text-xs font-bold text-slate-400 uppercase">Code</div>
+                          <div className="font-black text-indigo-700">{c.code}</div>
+                        </div>
+                        <div className="col-span-2 md:col-span-1">
+                          <div className="text-xs font-bold text-slate-400 uppercase">Course Name</div>
+                          <div className="font-semibold text-slate-700 truncate" title={c.name}>{c.name}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-slate-400 uppercase">Instructor</div>
+                          <div className="font-medium text-slate-700 text-sm">{c.instructor || 'TBA'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-slate-400 uppercase">Lab Hours</div>
+                          <div className="font-medium text-slate-700">{c.duration} Hrs</div>
+                        </div>
+                      </div>
+
+                      {/* Manual Data Entry */}
+                      <div className="w-full xl:w-[450px] flex items-center gap-3 bg-indigo-50/50 p-3 rounded-lg border border-indigo-100 shrink-0">
+                        <div className="w-1/3">
+                          <label className="block text-[10px] font-bold text-indigo-400 uppercase mb-1">Academic Year *</label>
+                          <select 
+                            value={c.academic_year} 
+                            onChange={(e) => handleUpdateExtractedCourse(c.id, 'academic_year', e.target.value)}
+                            className="w-full text-sm border-slate-200 rounded-md p-1.5 focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <option value="1st Year">1st Year</option>
+                            <option value="2nd Year">2nd Year</option>
+                            <option value="3rd Year">3rd Year</option>
+                            <option value="4th Year">4th Year</option>
+                          </select>
+                        </div>
+                        <div className="w-1/3">
+                          <label className="block text-[10px] font-bold text-indigo-400 uppercase mb-1">Strength *</label>
+                          <input 
+                            type="number" 
+                            required
+                            placeholder="e.g. 60"
+                            value={c.student_count} 
+                            onChange={(e) => handleUpdateExtractedCourse(c.id, 'student_count', e.target.value)}
+                            className="w-full text-sm border border-slate-200 rounded-md p-1.5 focus:ring-1 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <div className="w-1/3 flex items-center justify-center pt-4">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={c.gpu_required} 
+                              onChange={(e) => handleUpdateExtractedCourse(c.id, 'gpu_required', e.target.checked)}
+                              className="w-4 h-4 text-emerald-600 rounded" 
+                            />
+                            <span className="text-xs font-bold text-slate-600">Need GPU</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-white">
+              <button type="button" onClick={() => setShowExtractedReview(false)} className="px-6 py-2.5 font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">Discard</button>
+              <button type="button" onClick={handleAddExtractedCourses} disabled={extractedCourses.length === 0} className="px-6 py-2.5 font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors disabled:opacity-50">
+                Import & Add to Requirements
+              </button>
+            </div>
           </div>
         </div>
       )}
