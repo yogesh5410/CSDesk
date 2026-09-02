@@ -2,6 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import { testSupabaseConnection } from "./supabaseClient.js";
 import { requireAuth } from "./middleware/requireAuth.js";
+import optimizationRoutes from "./routes/optimizationRoutes.js";
 
 dotenv.config();
 
@@ -24,6 +25,8 @@ app.get("/api/supabase-check", async (req, res) => {
 app.get("/api/me", requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
+
+app.use("/api/optimization", optimizationRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {
