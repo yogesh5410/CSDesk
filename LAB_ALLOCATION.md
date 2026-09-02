@@ -118,7 +118,7 @@ CREATE TABLE lab_allocations (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT unique_lab_slot UNIQUE (lab_id, slot_id)
 );
-
+```
 ---
 
 ## 6. Optimization Algorithm Implementation (`solver.py`)

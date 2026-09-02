@@ -39,52 +39,112 @@
   ],
   "courses": [
     {
-      "code": "CS201",
-      "student_count": 55,
-      "gpu_required": false,
-      "academic_year": "2nd Year",
-      "instructor": "Dr. Smith",
-      "duration": 3
-    },
-    {
-      "code": "AI301",
-      "student_count": 35,
-      "gpu_required": true,
-      "academic_year": "3rd Year",
-      "instructor": "Dr. Alan",
-      "duration": 3
-    },
-    {
-      "code": "DB401",
-      "student_count": 50,
-      "gpu_required": false,
-      "academic_year": "4th Year",
-      "instructor": "Dr. Jane",
-      "duration": 3
-    },
-    {
-      "code": "NW301",
-      "student_count": 55,
-      "gpu_required": false,
-      "academic_year": "3rd Year",
-      "instructor": "Dr. Alan",
-      "duration": 3
-    },
-    {
-      "code": "ML401",
-      "student_count": 30,
-      "gpu_required": true,
-      "academic_year": "4th Year",
-      "instructor": "Dr. Jane",
-      "duration": 3
-    },
-    {
-      "code": "CS403",
+      "code": "CSL301",
+      "name": "Operating Systems",
+      "duration": 2,
+      "instructor": "Dr. SK Subidh Ali",
       "student_count": 40,
-      "gpu_required": true,
-      "academic_year": "4th",
-      "instructor": "dr. diman",
-      "duration": 2
+      "academic_year": "3rd Year",
+      "gpu_required": false
+    },
+    {
+      "code": "CSL302",
+      "name": "Compiler Design",
+      "duration": 2,
+      "instructor": "Prof. Santosh Biswas",
+      "student_count": 40,
+      "academic_year": "3rd Year",
+      "gpu_required": true
+    },
+    {
+      "code": "CSP352",
+      "name": "AI-AUGMENTED SOFTWARE DEVELOPMENT",
+      "duration": 4,
+      "instructor": "Dr. Dhiman saha",
+      "student_count": 100,
+      "academic_year": "4th Year",
+      "gpu_required": false
+    },
+    {
+      "code": "CSL503",
+      "name": "Computer Systems Engineering",
+      "duration": 2,
+      "instructor": "Dr. SK Subidh Ali",
+      "student_count": 40,
+      "academic_year": "2nd Year",
+      "gpu_required": false
+    },
+    {
+      "code": "CSL605",
+      "name": "Computer Networks and Cyber Security",
+      "duration": 2,
+      "instructor": "Dr. Anand M Baswade , Prof. Souradyuti Poul",
+      "student_count": 40,
+      "academic_year": "3rd Year",
+      "gpu_required": false
+    },
+    {
+      "code": "CSL622",
+      "name": "Quantum Computing for Computer Scientists",
+      "duration": 2,
+      "instructor": "Dr. Dhiman Saha",
+      "student_count": 40,
+      "academic_year": "3rd Year",
+      "gpu_required": false
+    },
+    {
+      "code": "CSP203",
+      "name": "Software Tool & Technologies Lab",
+      "duration": 4,
+      "instructor": "Dr. Anand M Baswade",
+      "student_count": 50,
+      "academic_year": "2nd Year",
+      "gpu_required": false
+    },
+    {
+      "code": "CSL304",
+      "name": "Artificial Intelligence",
+      "duration": 2,
+      "instructor": "Dr. Soumajit Pramanik",
+      "student_count": 50,
+      "academic_year": "4th Year",
+      "gpu_required": false
+    },
+    {
+      "code": "CSL202/MAL504",
+      "name": "Data Structures",
+      "duration": 2,
+      "instructor": "Prof. Souradyuti Poul",
+      "student_count": 50,
+      "academic_year": "2nd Year",
+      "gpu_required": false
+    },
+    {
+      "code": "CSL303/MAL505",
+      "name": "Database Management Systems",
+      "duration": 2,
+      "instructor": "Dr. Amit Kumar Dhar",
+      "student_count": 60,
+      "academic_year": "2nd Year",
+      "gpu_required": false
+    },
+    {
+      "code": "CSL100/MAL400",
+      "name": "Introduction to programming",
+      "duration": 3,
+      "instructor": "Dr. Vishwesh Jatala, Dr. Gagan Raj Gupta, Dr. Shivam Gupta",
+      "student_count": 200,
+      "academic_year": "2nd Year",
+      "gpu_required": false
+    },
+    {
+      "code": "CSL559",
+      "name": "COMPUTER SYSTEMS DESIGN",
+      "duration": 2,
+      "instructor": "Dr. Gagan Raj Gupta",
+      "student_count": 50,
+      "academic_year": "4th Year",
+      "gpu_required": false
     }
   ],
   "slots": [
