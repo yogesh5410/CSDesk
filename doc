@@ -1,0 +1,25 @@
+Our goal is make module TA Allocation. 
+what is TA Allocation: Each professor teaching btech students is assigned with some teaching assistants(mtech and phd studnets) based on his/her requirements, batch size, course, etc. 
+1. Each prof. submits his demand of TA: like i need 5 TA and good to have ram, shyam, rahul, abc, xyz.
+2. The admin sees the demand of all profs and based on the avaiability of number of TA assigns TA to each prof. 
+
+Resources: 
+1. From List of Courses in Data => we need course code, course name, Discipline, program, slot for lecture, slot for tutorial, slot for lab, and list of instructor for that course( instructors ). 
+2. From TA details => rollno., name, program, thesis supervisor, email
+3. From Faculty => name, email id. 
+4. From Common timetable => on which day, which islot which course is being conducted  
+5. Course Registraction (create a dummy csv file for now in data folder) => For each mTEch student => their studentID, and course id. 
+
+*** => Admin will ask the TA requirements from faculties for each course => course code, no. of TA, preferred TA studentID/rollno. 
+
+Constraints => 
+1. For all course code, which asks for TA must be alloted at least one TA. 
+2. First of all try to get available TA for each btech course. Means => If a btech course is being offered, get its course slot (lecture, tutorial, lab), then get the time slot from common timetable. Next, all phd TA are available all the time but for all mtech TA check their course registration, get their course code, fetch time slot from common timatable with help of list of courses table. At last check if that TA is not having any other course clashing. 
+3. If 2  or more profs are asking for same TA  in requirement. Then in case of clash if both courses have same time slot, then preference should be given to prof. who is that TA's Thesis supervisor given in TA Details 
+
+Most imp. First of all create new folder named Test data and put given pdf and csv in DATA folder by converting them to csv folder in proper required format. For tables not given like Mtech students ID and couse code (course registration table) create a dummy table. Also dummy table for Faculty TA requiemnts. 
+
+While copying data from List of course, keep only cse department course. Remove all other  as this software is only for cse department. 
+
+For now Do DATA processing and formating only. Don't write any algo or change ui.
+At last tell me how the technologies in attached img will healp in this task us
