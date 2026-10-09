@@ -58,10 +58,10 @@ def solve_lab_allocation(data_path):
     # 2. Hard Constraints
 
     # Constraint 1: Assignment Count
-    # A course gets 1 slot if duration is 2 or 3. It gets 2 slots if duration is 4 or 6.
+    # A course gets ceil(duration / 2.0) slots.
     for c in courses:
         duration = int(c.get('duration', 2))
-        req_slots = 2 if duration >= 4 else 1
+        req_slots = math.ceil(duration / 2.0)
         
         # Sum over all labs and slots must equal the required number of slots
         model.Add(sum(x[(c['code'], l['id'], s['id'])] for l in labs for s in slots) == req_slots)
@@ -93,11 +93,14 @@ def solve_lab_allocation(data_path):
     # A student year group cannot be assigned to two labs at the same time
     year_courses = {}
     for c in courses:
-        year = c.get('academic_year')
-        if year:
-            if year not in year_courses:
-                year_courses[year] = []
-            year_courses[year].append(c['code'])
+        years_raw = c.get('academic_year')
+        if years_raw:
+            # Handle comma-separated multiple years
+            years = [y.strip() for y in str(years_raw).split(',') if y.strip()]
+            for year in years:
+                if year not in year_courses:
+                    year_courses[year] = []
+                year_courses[year].append(c['code'])
 
     for year, c_ids in year_courses.items():
         for s in slots:
@@ -117,32 +120,49 @@ def solve_lab_allocation(data_path):
         for s in slots:
             model.AddAtMostOne(x[(c_id, l['id'], s['id'])] for c_id in c_ids for l in labs)
 
-    # Constraint 7: Minimum 1 Day Gap Between Sessions
-    # A course cannot have multiple labs on the same day, AND cannot have labs on consecutive days.
+    # Constraint 7: Duration-Specific Scheduling Rules
     
-    # Group slots into days (assuming 10 slots, 2 per day)
+    # Group slots into days (assuming 20 slots, 4 per day: M1, M2, A1, A2)
     days_slots = []
-    for i in range(0, len(slots), 2):
-        if i+1 < len(slots):
-            days_slots.append([slots[i]['id'], slots[i+1]['id']])
+    for i in range(0, len(slots), 4):
+        day_group = []
+        for j in range(4):
+            if i+j < len(slots):
+                day_group.append(slots[i+j]['id'])
+        if len(day_group) == 4:
+            days_slots.append(day_group)
             
     for c in courses:
+        duration = int(c.get('duration', 2))
         course_on_day = []
+        
         for d, day_slots in enumerate(days_slots):
-            # Sum of allocations for this course on day 'd'
             day_sum = sum(x[(c['code'], l['id'], s_id)] for l in labs for s_id in day_slots)
-            
-            # A course cannot have 2 labs on the very same day
-            model.Add(day_sum <= 1)
-            
-            # Track if course is active on day 'd'
             day_var = model.NewBoolVar(f"course_{c['code']}_day_{d}")
-            model.Add(day_sum == day_var)
+            
+            if duration == 3:
+                # 3-hour labs MUST consume exactly M1 & M2 together, OR A1 & A2 together, in the SAME lab!
+                for l in labs:
+                    m1 = x[(c['code'], l['id'], day_slots[0])]
+                    m2 = x[(c['code'], l['id'], day_slots[1])]
+                    a1 = x[(c['code'], l['id'], day_slots[2])]
+                    a2 = x[(c['code'], l['id'], day_slots[3])]
+                    model.Add(m1 == m2)
+                    model.Add(a1 == a2)
+                
+                # If scheduled on this day, it consumes exactly 2 slots
+                model.Add(day_sum == 2 * day_var)
+            else:
+                # 2, 4, or 6-hour labs can only consume AT MOST 1 slot per day
+                model.Add(day_sum <= 1)
+                model.Add(day_sum == day_var)
+                
             course_on_day.append(day_var)
             
-        # Prevent consecutive days (Minimum 1 day gap)
-        for d in range(len(days_slots) - 1):
-            model.Add(course_on_day[d] + course_on_day[d+1] <= 1)
+        if duration != 3:
+            # Prevent consecutive days for multi-slot courses (duration 4 or 6)
+            for d in range(len(days_slots) - 1):
+                model.Add(course_on_day[d] + course_on_day[d+1] <= 1)
 
     # 3. Objective Function: Save Costly GPU Labs
     # Minimize the assignment of NON-GPU courses into GPU labs
@@ -173,7 +193,8 @@ def solve_lab_allocation(data_path):
                             "year": c.get('academic_year', ''),
                             "instructor": c.get('instructor', ''),
                             "lab": l['name'],
-                            "slot": s['code']
+                            "slot": s['code'],
+                            "duration": c.get('duration', 2)
                         })
         return {"status": "SUCCESS", "allocations": results}
     else:
