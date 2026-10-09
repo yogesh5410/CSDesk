@@ -27,6 +27,8 @@ def parse_pdf(file_path):
                         name_idx = 1
                         ltp_idx = 2
                         inst_idx = 9
+                        lec_idx = -1
+                        lab_idx = -1
                         
                         # Try to find exact matches
                         for i, h in enumerate(headers):
@@ -34,6 +36,8 @@ def parse_pdf(file_path):
                             elif "Course Name" in h: name_idx = i
                             elif "L" in h and "T" in h and "P" in h: ltp_idx = i
                             elif "Instructor" in h: inst_idx = i
+                            elif "Slot Lecture" in h: lec_idx = i
+                            elif "Lab slot" in h: lab_idx = i
 
                         for row in table[header_idx+1:]:
                             if not row or not row[code_idx]:
@@ -58,12 +62,18 @@ def parse_pdf(file_path):
                                             if "btech project" in course_name.lower() or "b.tech project" in course_name.lower():
                                                 continue
                                                 
-                                            courses.append({
+                                            course_data = {
                                                 "code": code,
                                                 "name": course_name,
                                                 "duration": p,
                                                 "instructor": str(row[inst_idx]).strip().replace('\n', ' ')
-                                            })
+                                            }
+                                            if lec_idx != -1 and row[lec_idx]:
+                                                course_data["lecture_slot"] = str(row[lec_idx]).strip().replace('\n', '')
+                                            if lab_idx != -1 and row[lab_idx]:
+                                                course_data["lab_slot"] = str(row[lab_idx]).strip().replace('\n', '')
+                                                
+                                            courses.append(course_data)
                                     except ValueError:
                                         pass
     except Exception as e:
