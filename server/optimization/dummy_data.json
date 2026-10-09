@@ -43,8 +43,8 @@
       "name": "Operating Systems",
       "duration": 2,
       "instructor": "Dr. SK Subidh Ali",
-      "student_count": 40,
-      "academic_year": "3rd Year",
+      "student_count": 50,
+      "academic_year": "3rd Year,4th Year",
       "gpu_required": false
     },
     {
@@ -61,7 +61,7 @@
       "name": "AI-AUGMENTED SOFTWARE DEVELOPMENT",
       "duration": 4,
       "instructor": "Dr. Dhiman saha",
-      "student_count": 100,
+      "student_count": 110,
       "academic_year": "4th Year",
       "gpu_required": false
     },
@@ -71,7 +71,7 @@
       "duration": 2,
       "instructor": "Dr. SK Subidh Ali",
       "student_count": 40,
-      "academic_year": "2nd Year",
+      "academic_year": "4th Year",
       "gpu_required": false
     },
     {
@@ -79,7 +79,7 @@
       "name": "Computer Networks and Cyber Security",
       "duration": 2,
       "instructor": "Dr. Anand M Baswade , Prof. Souradyuti Poul",
-      "student_count": 40,
+      "student_count": 50,
       "academic_year": "3rd Year",
       "gpu_required": false
     },
@@ -88,8 +88,8 @@
       "name": "Quantum Computing for Computer Scientists",
       "duration": 2,
       "instructor": "Dr. Dhiman Saha",
-      "student_count": 40,
-      "academic_year": "3rd Year",
+      "student_count": 35,
+      "academic_year": "4th Year",
       "gpu_required": false
     },
     {
@@ -97,7 +97,7 @@
       "name": "Software Tool & Technologies Lab",
       "duration": 4,
       "instructor": "Dr. Anand M Baswade",
-      "student_count": 50,
+      "student_count": 60,
       "academic_year": "2nd Year",
       "gpu_required": false
     },
@@ -106,8 +106,8 @@
       "name": "Artificial Intelligence",
       "duration": 2,
       "instructor": "Dr. Soumajit Pramanik",
-      "student_count": 50,
-      "academic_year": "4th Year",
+      "student_count": 60,
+      "academic_year": "3rd Year",
       "gpu_required": false
     },
     {
@@ -124,8 +124,8 @@
       "name": "Database Management Systems",
       "duration": 2,
       "instructor": "Dr. Amit Kumar Dhar",
-      "student_count": 60,
-      "academic_year": "2nd Year",
+      "student_count": 75,
+      "academic_year": "3rd Year",
       "gpu_required": false
     },
     {
@@ -134,7 +134,7 @@
       "duration": 3,
       "instructor": "Dr. Vishwesh Jatala, Dr. Gagan Raj Gupta, Dr. Shivam Gupta",
       "student_count": 200,
-      "academic_year": "2nd Year",
+      "academic_year": "1st Year",
       "gpu_required": false
     },
     {
@@ -150,43 +150,83 @@
   "slots": [
     {
       "id": 1,
-      "code": "N"
+      "code": "MON_M1"
     },
     {
       "id": 2,
-      "code": "O"
+      "code": "MON_M2"
     },
     {
       "id": 3,
-      "code": "V"
+      "code": "MON_A1"
     },
     {
       "id": 4,
-      "code": "W"
+      "code": "MON_A2"
     },
     {
       "id": 5,
-      "code": "P"
+      "code": "TUE_M1"
     },
     {
       "id": 6,
-      "code": "Q"
+      "code": "TUE_M2"
     },
     {
       "id": 7,
-      "code": "R"
+      "code": "TUE_A1"
     },
     {
       "id": 8,
-      "code": "S"
+      "code": "TUE_A2"
     },
     {
       "id": 9,
-      "code": "T"
+      "code": "WED_M1"
     },
     {
       "id": 10,
-      "code": "U"
+      "code": "WED_M2"
+    },
+    {
+      "id": 11,
+      "code": "WED_A1"
+    },
+    {
+      "id": 12,
+      "code": "WED_A2"
+    },
+    {
+      "id": 13,
+      "code": "THU_M1"
+    },
+    {
+      "id": 14,
+      "code": "THU_M2"
+    },
+    {
+      "id": 15,
+      "code": "THU_A1"
+    },
+    {
+      "id": 16,
+      "code": "THU_A2"
+    },
+    {
+      "id": 17,
+      "code": "FRI_M1"
+    },
+    {
+      "id": 18,
+      "code": "FRI_M2"
+    },
+    {
+      "id": 19,
+      "code": "FRI_A1"
+    },
+    {
+      "id": 20,
+      "code": "FRI_A2"
     }
   ]
 }

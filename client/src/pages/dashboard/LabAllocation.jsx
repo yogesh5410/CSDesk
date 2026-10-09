@@ -7,11 +7,11 @@ import {
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const SLOTS_MAP = {
-  'Monday': { morning: 'N', afternoon: 'O' },
-  'Tuesday': { morning: 'V', afternoon: 'W' },
-  'Wednesday': { morning: 'P', afternoon: 'Q' },
-  'Thursday': { morning: 'R', afternoon: 'S' },
-  'Friday': { morning: 'T', afternoon: 'U' }
+  'Monday': { m1: 'MON_M1', m2: 'MON_M2', a1: 'MON_A1', a2: 'MON_A2' },
+  'Tuesday': { m1: 'TUE_M1', m2: 'TUE_M2', a1: 'TUE_A1', a2: 'TUE_A2' },
+  'Wednesday': { m1: 'WED_M1', m2: 'WED_M2', a1: 'WED_A1', a2: 'WED_A2' },
+  'Thursday': { m1: 'THU_M1', m2: 'THU_M2', a1: 'THU_A1', a2: 'THU_A2' },
+  'Friday': { m1: 'FRI_M1', m2: 'FRI_M2', a1: 'FRI_A1', a2: 'FRI_A2' }
 };
 
 const LabAllocation = () => {
@@ -170,6 +170,39 @@ const LabAllocation = () => {
     return allocations.filter(a => a.slot === slotCode);
   };
 
+  const getProcessedBlock = (slot1, slot2) => {
+    const a1 = [...allocations.filter(a => a.slot === slot1)];
+    const a2 = [...allocations.filter(a => a.slot === slot2)];
+    
+    const spanned = [];
+    const only1 = [];
+    const only2 = [];
+    
+    a1.forEach(alloc1 => {
+      const matchIdx = a2.findIndex(alloc2 => alloc2.course === alloc1.course && alloc2.lab === alloc1.lab);
+      if (matchIdx !== -1) {
+        spanned.push({ ...alloc1, span: 2 });
+        a2.splice(matchIdx, 1);
+      } else {
+        only1.push({ ...alloc1, span: 1, col: 1 });
+      }
+    });
+    
+    a2.forEach(alloc2 => {
+      only2.push({ ...alloc2, span: 1, col: 2 });
+    });
+    
+    return [...spanned, ...only1, ...only2];
+  };
+
+  const getTimeString = (slotCode, span) => {
+    if (slotCode.includes('_M1')) return span === 2 ? '08:30 AM - 12:30 PM' : '08:30 AM - 10:30 AM';
+    if (slotCode.includes('_M2')) return '10:30 AM - 12:30 PM';
+    if (slotCode.includes('_A1')) return span === 2 ? '01:30 PM - 05:30 PM' : '01:30 PM - 03:30 PM';
+    if (slotCode.includes('_A2')) return '03:30 PM - 05:30 PM';
+    return '';
+  };
+
   return (
     <div className="flex flex-col h-full space-y-6 w-full mx-auto p-4 md:p-6 lg:p-8">
       
@@ -323,59 +356,77 @@ const LabAllocation = () => {
                 <table className="w-full text-center border-collapse">
                   <thead>
                     <tr className="bg-[#1e3a5f] text-white">
-                      <th className="p-6 border-r border-[#2a4b7c] w-40 font-black text-xl">Day</th>
-                      <th className="p-6 border-r border-[#2a4b7c] w-[40%]">
-                        <div className="font-bold text-xl">Morning Slot</div>
-                        <div className="text-blue-200 font-medium mt-1">09:30 AM - 12:25 PM</div>
+                      <th className="p-4 border-r border-[#2a4b7c] w-24 font-black text-xl">Day</th>
+                      <th className="p-4 border-r border-[#2a4b7c] w-[40%]">
+                        <div className="font-bold text-lg">Morning Block (4 Hours)</div>
+                        <div className="text-blue-200 font-medium mt-1">08:30 AM - 12:30 PM</div>
                       </th>
-                      <th className="p-6 w-[40%]">
-                        <div className="font-bold text-xl">Afternoon Slot</div>
-                        <div className="text-blue-200 font-medium mt-1">02:30 PM - 05:25 PM</div>
+                      <th className="p-4 w-[40%]">
+                        <div className="font-bold text-lg">Afternoon Block (4 Hours)</div>
+                        <div className="text-blue-200 font-medium mt-1">01:30 PM - 05:30 PM</div>
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     {DAYS.map(day => (
                       <tr key={day} className="border-b border-slate-200 hover:bg-slate-50 transition-colors group">
-                        <td className="p-6 border-r border-slate-200 font-black text-slate-700 bg-slate-50 group-hover:bg-slate-100 text-lg">
+                        <td className="p-4 border-r border-slate-200 font-black text-slate-700 bg-slate-50 group-hover:bg-slate-100 text-lg">
                           {day}
                         </td>
                         
-                        {/* Morning */}
-                        <td className="p-4 border-r border-slate-200 align-top">
-                          <div className="font-black text-slate-400 mb-4 border-b pb-2 text-sm tracking-widest uppercase">SLOT {SLOTS_MAP[day].morning}</div>
-                          <div className="flex flex-wrap gap-4 justify-center">
-                            {getSlotAllocations(SLOTS_MAP[day].morning).map((alloc, idx) => (
-                              <div key={idx} className="bg-white border-2 border-indigo-100 rounded-xl p-4 text-left shadow-sm min-w-[220px] hover:border-indigo-300 transition-colors group/card">
-                                <div className="flex justify-between items-start mb-2">
-                                  <div className="font-black text-indigo-700 text-lg">{alloc.course}</div>
+                        {/* Morning Block */}
+                        <td className="p-3 border-r border-slate-200 align-top">
+                          <div className="grid grid-cols-2 gap-3 grid-flow-row-dense">
+                            <div className="font-black text-slate-400 border-b pb-2 text-xs tracking-widest uppercase text-center col-start-1">SLOT {SLOTS_MAP[day].m1}</div>
+                            <div className="font-black text-slate-400 border-b pb-2 text-xs tracking-widest uppercase text-center col-start-2">SLOT {SLOTS_MAP[day].m2}</div>
+                            
+                            {getProcessedBlock(SLOTS_MAP[day].m1, SLOTS_MAP[day].m2).map((alloc, idx) => (
+                              <div key={idx} className={`bg-white border-2 border-indigo-100 rounded-xl p-3 text-left shadow-sm hover:border-indigo-300 transition-colors ${alloc.span === 2 ? 'col-span-2 shadow-md bg-indigo-50/40' : (alloc.col === 1 ? 'col-start-1' : 'col-start-2')}`}>
+                                <div className="flex justify-between items-center mb-1">
+                                  <div className="font-black text-indigo-700 text-base">{alloc.course}</div>
+                                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${alloc.span === 2 ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                                      {alloc.duration || (alloc.span === 2 ? 4 : 2)} HOUR LAB
+                                  </span>
                                 </div>
-                                {alloc.name && <div className="text-xs font-semibold text-indigo-500 mb-2 truncate" title={alloc.name}>{alloc.name}</div>}
-                                {alloc.year && <div className="text-xs font-bold text-slate-500 mb-2 uppercase">{alloc.year}</div>}
-                                {alloc.instructor && <div className="text-sm text-slate-700 font-medium flex items-center gap-1.5 mb-2"><User className="h-4 w-4 text-slate-400" /> {alloc.instructor}</div>}
-                                <div className="text-sm text-slate-600 mt-3 pt-3 border-t flex items-center gap-2"><LayoutGrid className="h-4 w-4 text-slate-400" />{alloc.lab}</div>
+                                <div className="text-xs text-slate-500 font-bold flex items-center gap-1.5 mb-2 mt-1 bg-slate-50/80 w-max px-2 py-1 rounded-md border border-slate-100">
+                                   <Clock className="h-3 w-3 text-slate-400 shrink-0" />
+                                   {getTimeString(alloc.slot, alloc.span)}
+                                </div>
+                                {alloc.name && <div className="text-xs font-semibold text-indigo-500 mb-1 truncate" title={alloc.name}>{alloc.name}</div>}
+                                {alloc.year && <div className="text-[10px] font-bold text-slate-500 mb-1 uppercase">{alloc.year}</div>}
+                                {alloc.instructor && <div className="text-xs text-slate-700 font-medium flex items-center gap-1 mb-1 truncate"><User className="h-3 w-3 text-slate-400 shrink-0" /> {alloc.instructor}</div>}
+                                <div className="text-xs text-slate-600 mt-2 pt-2 border-t flex items-center gap-1.5"><LayoutGrid className="h-3 w-3 text-slate-400 shrink-0" />{alloc.lab}</div>
                               </div>
                             ))}
-                            {getSlotAllocations(SLOTS_MAP[day].morning).length === 0 && <span className="text-slate-300 font-medium italic py-8 block w-full">No allocations</span>}
+                            {getProcessedBlock(SLOTS_MAP[day].m1, SLOTS_MAP[day].m2).length === 0 && <div className="col-span-2 text-slate-300 font-medium italic py-4 text-center text-sm">Empty</div>}
                           </div>
                         </td>
 
-                        {/* Afternoon */}
-                        <td className="p-4 align-top bg-blue-50/20">
-                          <div className="font-black text-slate-400 mb-4 border-b pb-2 text-sm tracking-widest uppercase">SLOT {SLOTS_MAP[day].afternoon}</div>
-                          <div className="flex flex-wrap gap-4 justify-center">
-                            {getSlotAllocations(SLOTS_MAP[day].afternoon).map((alloc, idx) => (
-                              <div key={idx} className="bg-white border-2 border-blue-100 rounded-xl p-4 text-left shadow-sm min-w-[220px] hover:border-blue-300 transition-colors">
-                                <div className="flex justify-between items-start mb-2">
-                                  <div className="font-black text-blue-700 text-lg">{alloc.course}</div>
+                        {/* Afternoon Block */}
+                        <td className="p-3 align-top bg-blue-50/10">
+                          <div className="grid grid-cols-2 gap-3 grid-flow-row-dense">
+                            <div className="font-black text-slate-400 border-b pb-2 text-xs tracking-widest uppercase text-center col-start-1">SLOT {SLOTS_MAP[day].a1}</div>
+                            <div className="font-black text-slate-400 border-b pb-2 text-xs tracking-widest uppercase text-center col-start-2">SLOT {SLOTS_MAP[day].a2}</div>
+                            
+                            {getProcessedBlock(SLOTS_MAP[day].a1, SLOTS_MAP[day].a2).map((alloc, idx) => (
+                              <div key={idx} className={`bg-white border-2 border-blue-100 rounded-xl p-3 text-left shadow-sm hover:border-blue-300 transition-colors ${alloc.span === 2 ? 'col-span-2 shadow-md bg-blue-50/40' : (alloc.col === 1 ? 'col-start-1' : 'col-start-2')}`}>
+                                <div className="flex justify-between items-center mb-1">
+                                  <div className="font-black text-blue-700 text-base">{alloc.course}</div>
+                                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${alloc.span === 2 ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                                      {alloc.duration || (alloc.span === 2 ? 4 : 2)} HOUR LAB
+                                  </span>
                                 </div>
-                                {alloc.name && <div className="text-xs font-semibold text-blue-500 mb-2 truncate" title={alloc.name}>{alloc.name}</div>}
-                                {alloc.year && <div className="text-xs font-bold text-slate-500 mb-2 uppercase">{alloc.year}</div>}
-                                {alloc.instructor && <div className="text-sm text-slate-700 font-medium flex items-center gap-1.5 mb-2"><User className="h-4 w-4 text-slate-400" /> {alloc.instructor}</div>}
-                                <div className="text-sm text-slate-600 mt-3 pt-3 border-t flex items-center gap-2"><LayoutGrid className="h-4 w-4 text-slate-400" />{alloc.lab}</div>
+                                <div className="text-xs text-slate-500 font-bold flex items-center gap-1.5 mb-2 mt-1 bg-slate-50/80 w-max px-2 py-1 rounded-md border border-slate-100">
+                                   <Clock className="h-3 w-3 text-slate-400 shrink-0" />
+                                   {getTimeString(alloc.slot, alloc.span)}
+                                </div>
+                                {alloc.name && <div className="text-xs font-semibold text-blue-500 mb-1 truncate" title={alloc.name}>{alloc.name}</div>}
+                                {alloc.year && <div className="text-[10px] font-bold text-slate-500 mb-1 uppercase">{alloc.year}</div>}
+                                {alloc.instructor && <div className="text-xs text-slate-700 font-medium flex items-center gap-1 mb-1 truncate"><User className="h-3 w-3 text-slate-400 shrink-0" /> {alloc.instructor}</div>}
+                                <div className="text-xs text-slate-600 mt-2 pt-2 border-t flex items-center gap-1.5"><LayoutGrid className="h-3 w-3 text-slate-400 shrink-0" />{alloc.lab}</div>
                               </div>
                             ))}
-                            {getSlotAllocations(SLOTS_MAP[day].afternoon).length === 0 && <span className="text-slate-300 font-medium italic py-8 block w-full">No allocations</span>}
+                            {getProcessedBlock(SLOTS_MAP[day].a1, SLOTS_MAP[day].a2).length === 0 && <div className="col-span-2 text-slate-300 font-medium italic py-4 text-center text-sm">Empty</div>}
                           </div>
                         </td>
                       </tr>
@@ -416,9 +467,26 @@ const LabAllocation = () => {
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Course Name</label>
                   <input type="text" value={newCourse.name} onChange={e => setNewCourse({...newCourse, name: e.target.value})} className="w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="e.g. Data Structures" />
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Academic Year</label>
-                  <input required type="text" value={newCourse.academic_year} onChange={e => setNewCourse({...newCourse, academic_year: e.target.value})} className="w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="e.g. 2nd Year" />
+                <div className="col-span-2">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Academic Year(s)</label>
+                  <div className="flex flex-wrap gap-3">
+                    {["1st Year", "2nd Year", "3rd Year", "4th Year", "MTech/PhD"].map(y => (
+                      <label key={y} className="flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-100 transition-colors">
+                        <input 
+                          type="checkbox" 
+                          checked={newCourse.academic_year ? newCourse.academic_year.split(',').includes(y) : false}
+                          onChange={(e) => {
+                            let current = newCourse.academic_year ? newCourse.academic_year.split(',') : [];
+                            if (e.target.checked) current.push(y);
+                            else current = current.filter(item => item !== y);
+                            setNewCourse({...newCourse, academic_year: current.join(',')});
+                          }}
+                          className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" 
+                        />
+                        <span className="text-sm font-semibold text-slate-700">{y}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Student Strength</label>
@@ -527,18 +595,26 @@ const LabAllocation = () => {
 
                       {/* Manual Data Entry */}
                       <div className="w-full xl:w-[450px] flex items-center gap-3 bg-indigo-50/50 p-3 rounded-lg border border-indigo-100 shrink-0">
-                        <div className="w-1/3">
-                          <label className="block text-[10px] font-bold text-indigo-400 uppercase mb-1">Academic Year *</label>
-                          <select 
-                            value={c.academic_year} 
-                            onChange={(e) => handleUpdateExtractedCourse(c.id, 'academic_year', e.target.value)}
-                            className="w-full text-sm border-slate-200 rounded-md p-1.5 focus:ring-1 focus:ring-indigo-500"
-                          >
-                            <option value="1st Year">1st Year</option>
-                            <option value="2nd Year">2nd Year</option>
-                            <option value="3rd Year">3rd Year</option>
-                            <option value="4th Year">4th Year</option>
-                          </select>
+                        <div className="w-[40%]">
+                          <label className="block text-[10px] font-bold text-indigo-400 uppercase mb-1.5">Academic Year(s) *</label>
+                          <div className="flex flex-col gap-1.5">
+                            {["1st Year", "2nd Year", "3rd Year", "4th Year"].map(y => (
+                              <label key={y} className="flex items-center gap-1.5 cursor-pointer">
+                                <input 
+                                  type="checkbox" 
+                                  checked={c.academic_year ? c.academic_year.split(',').includes(y) : false}
+                                  onChange={(e) => {
+                                    let current = c.academic_year ? c.academic_year.split(',') : [];
+                                    if (e.target.checked) current.push(y);
+                                    else current = current.filter(item => item !== y);
+                                    handleUpdateExtractedCourse(c.id, 'academic_year', current.join(','));
+                                  }}
+                                  className="w-3.5 h-3.5 text-indigo-600 rounded" 
+                                />
+                                <span className="text-xs font-semibold text-slate-700">{y}</span>
+                              </label>
+                            ))}
+                          </div>
                         </div>
                         <div className="w-1/3">
                           <label className="block text-[10px] font-bold text-indigo-400 uppercase mb-1">Strength *</label>

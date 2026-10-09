@@ -1,152 +1,271 @@
-# CSDesk: Autonomous Lab Allocation & Timetable Optimization Engine
-### Project Specification & LLM Agent Implementation Blueprint
+# CSDesk Lab Allocation
+
+This document explains the lab allocation module in CSDesk in a simple, human-readable way.
+It is written so you can use it for explanation during viva or demo, and also so anyone reading it can understand the workflow quickly.
 
 ---
 
-## 1. Executive Summary & Objective
+## 1. What This Module Does
 
-**CSDesk** is an academic automation software for the Computer Science & Engineering (CSE) department. 
+The lab allocation feature automatically creates a conflict-free timetable for practical classes.
 
-The core task of this subsystem is to automate **Lab Allocation and Timetable Generation**. Given a set of university courses with specific lab practical requirements, batch strengths, physical labs with distinct capacities and hardware constraints (e.g., GPU enabled), and a fixed institute timetable slot layout, generate a 100% conflict-free lab schedule using deterministic constraint satisfaction.
+It uses:
+- course details,
+- student strength,
+- academic year,
+- instructor name,
+- lab capacity,
+- GPU availability,
+- and time slots.
 
----
-
-## 2. Institutional Timetable Rules & Extracted Ground Truth
-
-Based on institutional timetables and curriculum formats:
-
-1. **Standard Institute Lab Slots:**
-   * Lab courses are typically allocated to 180-minute (3-hour) afternoon or designated slots: **N, O, P, Q, R, S, T, U, V, W**[cite: 1].
-   * Standard afternoon lab timing runs from **2:30 PM to 5:25 PM**, Monday through Friday[cite: 1].
-   * 50–55 minute theory lecture slots (A through M) run in morning blocks and thrice a week[cite: 1].
-
-2. **Course Characteristics:**
-   * Courses specify lecture, tutorial, and practical contact hours in $L\text{-}T\text{-}P$ format (e.g., `0-0-3` represents a 3-hour practical lab)[cite: 2].
-   * Courses belong to specific academic years ($1^{\text{st}}, 2^{\text{nd}}, 3^{\text{rd}}, 4^{\text{th}}$ Year B.Tech / M.Tech / Ph.D.) and student batches[cite: 2].
-   * Specific AI/ML/Data Science and Systems courses mandate dedicated **GPU clusters**, whereas core theory labs require standard workstations.
+The final result is a schedule that avoids clashes between:
+- labs,
+- student batches or years,
+- and instructors.
 
 ---
 
-## 3. System Architecture & Tech Stack
+## 2. Main Idea
 
-[ Frontend: React + Tailwind CSS ]
-│ (HTTP / JSON)
-▼
-[ Backend API: FastAPI (Python 3.11+) ]
-│
-┌───────┴──────────────────────────────┐
-│                                      │
-▼                                      ▼
-[ Storage: PostgreSQL + SQLAlchemy ]  [ Solver: Google OR-Tools (CP-SAT) ]
+This system does not assign labs manually.
+Instead, it converts timetable planning into a constraint-solving problem.
 
+In simple words:
+- every possible course-lab-slot combination is treated as a yes/no choice,
+- the solver keeps only the combinations that satisfy all rules,
+- and then it returns the best valid timetable.
 
-* **Backend Framework:** FastAPI / Python.
-* **Optimization Engine:** `ortools.sat.python.cp_model` (Google OR-Tools CP-SAT).
-* **Database:** PostgreSQL (SQLAlchemy ORM + Alembic migrations).
-* **Parser:** `pdfplumber` / `pandas` for processing course CSV/PDF data.
-* **Frontend:** React (Vite), Tailwind CSS, Lucide Icons.
+The main solver logic is in [server/optimization/solver.py](server/optimization/solver.py#L6).
 
 ---
 
-## 4. Mathematical Model & Optimization Constraints
+## 3. Full Workflow
 
-Let:
-* $C$ be the set of courses requiring lab slots.
-* $L$ be the set of available physical labs.
-* $S$ be the set of valid lab time slots (e.g., $N, O, P, Q, R$).
+### Step 1: Load the base data
 
-Decision Variable:
-$$x_{c, l, s} \in \{0, 1\} \quad \forall c \in C, l \in L, s \in S$$
-where $x_{c, l, s} = 1$ if course $c$ is assigned to lab $l$ during slot $s$, and $0$ otherwise.
+When the Lab Allocation page opens, the frontend loads the current labs, courses, and slots from the backend.
 
-### Hard Constraints:
+This happens in [client/src/pages/dashboard/LabAllocation.jsx](client/src/pages/dashboard/LabAllocation.jsx#L37).
 
-1. **Single Assignment:** Every registered lab practical course must be assigned to exactly one lab and one slot:
-   $$\sum_{l \in L} \sum_{s \in S} x_{c, l, s} = 1 \quad \forall c \in C$$
+### Step 2: Update the data if needed
 
-2. **Lab Capacity Feasibility:** A lab must have sufficient seating capacity for the enrolled student strength:
-   $$\text{If } \text{Capacity}(l) < \text{Strength}(c) \implies x_{c, l, s} = 0 \quad \forall s \in S$$
+The user can:
+- add a new course,
+- add a new lab,
+- or upload a PDF to extract course details.
 
-3. **Hardware / GPU Compatibility:** If a course mandates GPU support, it cannot be placed in a non-GPU lab:
-   $$\text{If } \text{RequiresGPU}(c) = \text{True} \land \text{HasGPU}(l) = \text{False} \implies x_{c, l, s} = 0 \quad \forall s \in S$$
+The PDF parsing part is handled by [server/optimization/parser.py](server/optimization/parser.py#L6) and the API route in [server/routes/optimizationRoutes.js](server/routes/optimizationRoutes.js#L16).
 
-4. **No Lab Double-Booking:** At most one practical course can occupy a physical lab in any slot:
-   $$\sum_{c \in C} x_{c, l, s} \le 1 \quad \forall l \in L, \forall s \in S$$
+### Step 3: Run the optimization
 
-5. **No Student / Batch Clash:** A student batch/academic year group cannot be assigned to two labs at the same time:
-   $$\sum_{c \in C_{\text{batch}}} \sum_{l \in L} x_{c, l, s} \le 1 \quad \forall s \in S$$
+When the user clicks Run Algorithm, the frontend sends the current data to the backend.
+
+That request is made in [client/src/pages/dashboard/LabAllocation.jsx](client/src/pages/dashboard/LabAllocation.jsx#L45).
+
+### Step 4: Backend calls the Python solver
+
+The backend writes the data into the JSON file if needed, then executes the Python solver script.
+
+That logic is in [server/routes/optimizationRoutes.js](server/routes/optimizationRoutes.js#L62).
+
+### Step 5: Solver returns the final timetable
+
+If the solver finds a valid arrangement, it returns the allocations in JSON.
+If it cannot find a valid arrangement, it returns an error or an infeasible result.
+
+### Step 6: Frontend displays the schedule
+
+The React page shows the generated timetable in a day-wise format.
+
+The timetable output section is in [client/src/pages/dashboard/LabAllocation.jsx](client/src/pages/dashboard/LabAllocation.jsx#L324).
 
 ---
 
-## 5. Database Schema Definition
+## 4. Data Used By The Solver
 
-```sql
-CREATE TABLE physical_labs (
-    id SERIAL PRIMARY KEY,
-    lab_name VARCHAR(100) NOT NULL,
-    room_number VARCHAR(50),
-    capacity INT NOT NULL,
-    has_gpu BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE
-);
+The sample data is stored in [server/optimization/dummy_data.json](server/optimization/dummy_data.json#L1).
 
-CREATE TABLE academic_courses (
-    id SERIAL PRIMARY KEY,
-    course_code VARCHAR(20) NOT NULL,
-    course_name VARCHAR(255) NOT NULL,
-    academic_year INT NOT NULL, -- 1, 2, 3, 4
-    batch_section VARCHAR(20) NOT NULL, -- B1, B2, etc.
-    student_count INT NOT NULL,
-    duration_hours INT DEFAULT 3, -- 2 or 3 hours
-    gpu_required BOOLEAN DEFAULT FALSE,
-    instructor_name VARCHAR(100)
-);
+It contains:
+- labs with `id`, `name`, `capacity`, and `has_gpu`,
+- courses with `code`, `name`, `duration`, `instructor`, `student_count`, `academic_year`, and `gpu_required`,
+- and slots like `MON_M1`, `MON_M2`, `MON_A1`, `MON_A2`, up to Friday.
 
-CREATE TABLE time_slots (
-    id SERIAL PRIMARY KEY,
-    slot_code VARCHAR(10) UNIQUE NOT NULL, -- N, O, P, Q, R
-    day_of_week VARCHAR(15) NOT NULL,     -- Monday to Friday
-    start_time TIME NOT NULL,              -- 14:30:00
-    end_time TIME NOT NULL                 -- 17:25:00
-);
+This slot structure is used by the solver in [server/optimization/solver.py](server/optimization/solver.py#L120).
 
-CREATE TABLE lab_allocations (
-    id SERIAL PRIMARY KEY,
-    course_id INT REFERENCES academic_courses(id) ON DELETE CASCADE,
-    lab_id INT REFERENCES physical_labs(id) ON DELETE CASCADE,
-    slot_id INT REFERENCES time_slots(id) ON DELETE CASCADE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT unique_lab_slot UNIQUE (lab_id, slot_id)
-);
-```
 ---
 
-## 6. Optimization Algorithm Implementation (`solver.py`)
+## 5. How The Solver Works
 
-The core scheduling engine leverages **Google OR-Tools CP-SAT (Constraint Programming - Satisfiability)**. The script `solver.py` formulates the lab allocation as a deterministic boolean constraint satisfaction problem.
+The solver uses Google OR-Tools CP-SAT.
 
-### 1. Data Parsing & Pre-flight Sanity Checks
-Before feeding data to the mathematical solver, the algorithm runs a **pre-flight sanity check**. It verifies if every course has *at least one* physical lab capable of holding its student strength and meeting its hardware (GPU) requirements. If a course is physically impossible to schedule (e.g., 80 students needing a GPU, but the largest GPU lab holds 40), the algorithm halts immediately and returns a precise error message.
+That means it checks a large number of possible assignments and keeps only the ones that satisfy every rule.
 
-### 2. Decision Variables
-The model relies on a 3-dimensional boolean decision variable matrix:
-`x[(c, l, s)] ∈ {0, 1}`
-Where `x` is `1` if Course `c` is assigned to Lab `l` during Time Slot `s`, and `0` otherwise.
+The input is read from JSON in [server/optimization/solver.py](server/optimization/solver.py#L7).
 
-### 3. Hard Constraints Applied
-The solver enforces the following 6 hard constraints:
-1. **Single Assignment:** `model.AddExactlyOne(...)`
-   Every registered lab course must be assigned to exactly one lab and exactly one time slot.
-2. **Lab Capacity Feasibility:** 
-   If a lab's seating capacity is strictly less than the course's student strength, the decision variable for that `(c, l, s)` combination is forced to `0`.
-3. **Hardware / GPU Compatibility:**
-   If a course requires a GPU, but the lab lacks GPU infrastructure, the decision variable is forced to `0`.
-4. **No Lab Double-Booking:** `model.AddAtMostOne(...)`
-   For any given lab `l` and any given slot `s`, the sum of assigned courses cannot exceed `1` (a physical room can only host one practical at a time).
-5. **No Student / Year Clash:**
-   Courses belonging to the same `academic_year` (e.g., "2nd Year") are grouped. For any given time slot `s`, a specific academic year can be assigned to at most `1` lab, ensuring students never have overlapping classes.
-6. **No Instructor Clash:**
-   Courses taught by the same `instructor` are grouped. For any given time slot `s`, a specific instructor can be assigned to at most `1` lab, guaranteeing professors are never double-booked.
+### 5.1 Course splitting for oversized batches
 
-### 4. Resolution
-The CP-SAT solver aggressively explores the boolean search tree to find a `FEASIBLE` or `OPTIMAL` matrix that satisfies 100% of the above constraints. Once found, it translates the boolean `1` values back into human-readable JSON outputs containing the generated schedule.
+If a course is bigger than the largest valid lab, the solver automatically splits it into batches.
+
+This is done in [server/optimization/solver.py](server/optimization/solver.py#L15).
+
+Example:
+- if a course has 100 students,
+- and the biggest valid lab can hold only 40,
+- the course is split into smaller batches so each batch can fit into the available labs.
+
+### 5.2 Pre-check before solving
+
+Before solving, the code checks whether each course has at least one eligible lab.
+
+It checks:
+- capacity,
+- and GPU requirement.
+
+If no lab can host a course, the solver immediately returns an error.
+
+This check is in [server/optimization/solver.py](server/optimization/solver.py#L38).
+
+### 5.3 Decision variables
+
+For every possible combination of:
+- course,
+- lab,
+- slot,
+
+the solver creates a boolean variable.
+
+If the variable is `1`, that means the course is assigned there.
+If it is `0`, that placement is not used.
+
+This is created in [server/optimization/solver.py](server/optimization/solver.py#L50).
+
+---
+
+## 6. Rules Enforced By The Solver
+
+The solver applies these rules strictly:
+
+### Rule 1: Each course gets the required number of slots
+
+The solver calculates how many slots a course needs from its duration.
+
+This is handled in [server/optimization/solver.py](server/optimization/solver.py#L60).
+
+### Rule 2: Lab capacity must be enough
+
+If the lab capacity is smaller than the student strength, that placement is not allowed.
+
+See [server/optimization/solver.py](server/optimization/solver.py#L73).
+
+### Rule 3: GPU courses only go to GPU labs
+
+If a course needs GPU support, the solver forbids placing it in a non-GPU lab.
+
+See [server/optimization/solver.py](server/optimization/solver.py#L73).
+
+### Rule 4: A lab cannot be double-booked
+
+Only one course can occupy one physical lab at one time slot.
+
+See [server/optimization/solver.py](server/optimization/solver.py#L86).
+
+### Rule 5: Same academic year cannot clash
+
+Students of the same year should not be assigned to two different labs at the same time.
+
+This is enforced in [server/optimization/solver.py](server/optimization/solver.py#L92).
+
+### Rule 6: Same instructor cannot clash
+
+An instructor cannot teach in two labs at the same time.
+
+This is enforced in [server/optimization/solver.py](server/optimization/solver.py#L107).
+
+### Rule 7: Duration-based scheduling behavior
+
+The solver also groups slots by day and applies special handling for lab durations.
+
+This is defined in [server/optimization/solver.py](server/optimization/solver.py#L120).
+
+---
+
+## 7. Objective Of The Solver
+
+The solver does not only try to find any valid timetable.
+It also tries to use GPU labs efficiently.
+
+It minimizes the use of GPU labs for courses that do not actually require GPU support.
+
+That objective is set in [server/optimization/solver.py](server/optimization/solver.py#L164).
+
+---
+
+## 8. Result Format
+
+If the solver succeeds, it returns a JSON response with:
+- course code,
+- course name,
+- year,
+- instructor,
+- lab name,
+- slot code,
+- duration.
+
+That output is generated in [server/optimization/solver.py](server/optimization/solver.py#L180).
+
+If there is no valid solution, it returns `INFEASIBLE`.
+
+---
+
+## 9. Frontend Display
+
+The Lab Allocation page in the frontend does three important things:
+
+1. Shows the current list of courses and labs.
+2. Lets the user upload PDF data or manually add records.
+3. Displays the final generated timetable.
+
+The data entry part is in [client/src/pages/dashboard/LabAllocation.jsx](client/src/pages/dashboard/LabAllocation.jsx#L229).
+The result table is in [client/src/pages/dashboard/LabAllocation.jsx](client/src/pages/dashboard/LabAllocation.jsx#L324).
+
+The timetable is split into:
+- Monday to Friday,
+- morning block,
+- afternoon block.
+
+That structure is defined in [client/src/pages/dashboard/LabAllocation.jsx](client/src/pages/dashboard/LabAllocation.jsx#L8).
+
+---
+
+## 10. Simple Explanation You Can Say In Viva
+
+You can explain it like this:
+
+"The lab allocation system automatically creates a conflict-free timetable for practical classes. First, it reads all courses, labs, and available time slots. Then it checks important conditions like lab capacity, GPU requirement, instructor clashes, and academic year clashes. After that, it uses the OR-Tools CP-SAT solver to find a valid assignment for every course. If a course is too large for one lab, it is split into batches. Finally, the backend sends the result as JSON and the frontend shows the final timetable in a readable format."
+
+---
+
+## 11. Short Version For Quick Revision
+
+- Input: courses, labs, slots.
+- Parser: reads course data from PDF.
+- Solver: uses CP-SAT to satisfy all constraints.
+- Constraints: capacity, GPU, lab clash, year clash, instructor clash.
+- Output: a valid timetable in JSON.
+- UI: React page displays the result clearly.
+
+---
+
+## 12. Important Files
+
+- [server/optimization/solver.py](server/optimization/solver.py)
+- [server/optimization/parser.py](server/optimization/parser.py)
+- [server/routes/optimizationRoutes.js](server/routes/optimizationRoutes.js)
+- [server/optimization/dummy_data.json](server/optimization/dummy_data.json)
+- [client/src/pages/dashboard/LabAllocation.jsx](client/src/pages/dashboard/LabAllocation.jsx)
+
+---
+
+## 13. One-Line Summary
+
+CSDesk lab allocation is a rule-based timetable generator that uses OR-Tools to assign every lab practical to a suitable lab and slot without clashes.
