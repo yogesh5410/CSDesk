@@ -1,0 +1,310 @@
+{
+  "labs": [
+    {
+      "id": "1",
+      "name": "TL1 (106)",
+      "capacity": 84,
+      "has_gpu": true
+    },
+    {
+      "id": "2",
+      "name": "TL2 (105)",
+      "capacity": 20,
+      "has_gpu": false
+    },
+    {
+      "id": "3",
+      "name": "ED1 (312)",
+      "capacity": 32,
+      "has_gpu": false
+    },
+    {
+      "id": "4",
+      "name": "ED1 (308)",
+      "capacity": 32,
+      "has_gpu": false
+    },
+    {
+      "id": "5",
+      "name": "ED1 (320)",
+      "capacity": 80,
+      "has_gpu": false
+    },
+    {
+      "id": "6",
+      "name": "ED2 (302)",
+      "capacity": 80,
+      "has_gpu": false
+    }
+  ],
+  "courses": [
+    {
+      "code": "CSL301",
+      "name": "Operating Systems",
+      "student_count": 60,
+      "gpu_required": false,
+      "academic_year": "3rd Year",
+      "instructor": "Dr. SK Subidh Ali",
+      "duration": 2,
+      "periods": [
+        "Monday_03:30-4:25",
+        "Monday_4:30-5:25"
+      ]
+    },
+    {
+      "code": "CSL302",
+      "name": "Compiler Design",
+      "student_count": 50,
+      "gpu_required": true,
+      "academic_year": "3rd Year",
+      "instructor": "Prof. Santosh Biswas",
+      "duration": 2,
+      "periods": [
+        "Friday_03:30-4:25",
+        "Friday_4:30-5:25"
+      ]
+    },
+    {
+      "code": "CSP352",
+      "name": "AI-AUGMENTED SOFTWARE DEVELOPMENT",
+      "student_count": 120,
+      "gpu_required": false,
+      "academic_year": "4th Year",
+      "instructor": "Dr. Dhiman saha",
+      "duration": 4,
+      "periods": [
+        "Wednesday_09:30-10:25",
+        "Wednesday_10:30-11:25",
+        "Friday_09:30-10:25",
+        "Friday_10:30-11:25"
+      ]
+    },
+    {
+      "code": "CSL503",
+      "name": "Computer Systems Engineering",
+      "student_count": 60,
+      "gpu_required": false,
+      "academic_year": "3rd Year",
+      "instructor": "Dr. SK Subidh Ali",
+      "duration": 2,
+      "periods": [
+        "Friday_09:30-10:25",
+        "Friday_10:30-11:25"
+      ]
+    },
+    {
+      "code": "CSL605",
+      "name": "Computer Networks and Cyber Security",
+      "student_count": 40,
+      "gpu_required": false,
+      "academic_year": "3rd Year",
+      "instructor": "Dr. Anand M Baswade , Prof. Souradyuti Poul",
+      "duration": 2,
+      "periods": [
+        "Monday_03:30-4:25",
+        "Monday_4:30-5:25"
+      ]
+    },
+    {
+      "code": "CSL622",
+      "name": "Quantum Computing for Computer Scientists",
+      "student_count": 40,
+      "gpu_required": false,
+      "academic_year": "4th Year",
+      "instructor": "Dr. Dhiman Saha",
+      "duration": 2,
+      "periods": [
+        "Tuesday_09:30-10:25",
+        "Tuesday_10:30-11:25"
+      ]
+    },
+    {
+      "code": "CSP203",
+      "name": "Software Tool & Technologies Lab",
+      "student_count": 60,
+      "gpu_required": false,
+      "academic_year": "2nd Year,3rd Year",
+      "instructor": "Dr. Anand M Baswade",
+      "duration": 4,
+      "periods": [
+        "Friday_02:30-03:25",
+        "Friday_03:30-4:25",
+        "Thursday_02:30-03:25",
+        "Thursday_03:30-4:25"
+      ]
+    },
+    {
+      "code": "CSL304",
+      "name": "Artificial Intelligence",
+      "student_count": 60,
+      "gpu_required": false,
+      "academic_year": "3rd Year",
+      "instructor": "Dr. Soumajit Pramanik",
+      "duration": 2,
+      "periods": [
+        "Tuesday_03:30-4:25",
+        "Tuesday_4:30-5:25"
+      ]
+    },
+    {
+      "code": "CSL202/MAL504",
+      "name": "Data Structures",
+      "student_count": 75,
+      "gpu_required": false,
+      "academic_year": "2nd Year,3rd Year",
+      "instructor": "Prof. Souradyuti Poul",
+      "duration": 2,
+      "periods": [
+        "Monday_03:30-4:25",
+        "Monday_4:30-5:25"
+      ]
+    },
+    {
+      "code": "CSL303/MAL505",
+      "name": "Database Management Systems",
+      "student_count": 50,
+      "gpu_required": false,
+      "academic_year": "3rd Year",
+      "instructor": "Dr. Amit Kumar Dhar",
+      "duration": 2,
+      "periods": [
+        "Wednesday_02:30-03:25",
+        "Wednesday_03:30-4:25"
+      ]
+    },
+    {
+      "code": "CSL100/MAL400",
+      "name": "Introduction to programming",
+      "student_count": 220,
+      "gpu_required": false,
+      "academic_year": "1st Year",
+      "instructor": "Dr. Vishwesh Jatala, Dr. Gagan Raj Gupta, Dr. Shivam Gupta",
+      "duration": 3,
+      "periods": [
+        "Monday_02:30-03:25",
+        "Monday_03:30-4:25",
+        "Monday_4:30-5:25",
+        "Tuesday_02:30-03:25",
+        "Tuesday_03:30-4:25",
+        "Tuesday_4:30-5:25",
+        "Wednesday_02:30-03:25",
+        "Wednesday_03:30-4:25",
+        "Wednesday_4:30-5:25",
+        "Thursday_02:30-03:25",
+        "Thursday_03:30-4:25",
+        "Thursday_4:30-5:25",
+        "Friday_02:30-03:25",
+        "Friday_03:30-4:25",
+        "Friday_4:30-5:25"
+      ]
+    },
+    {
+      "code": "CSL559",
+      "name": "COMPUTER SYSTEMS DESIGN",
+      "student_count": 60,
+      "gpu_required": false,
+      "academic_year": "4th Year",
+      "instructor": "Dr. Gagan Raj Gupta",
+      "duration": 2,
+      "periods": [
+        "Friday_03:30-4:25",
+        "Friday_4:30-5:25"
+      ]
+    }
+  ],
+  "slots": [],
+  "timetableData": {
+    "headers": [
+      "8:30-9:25",
+      "09:30-10:25",
+      "10:30-11:25",
+      "11:30-12:25",
+      "12:30-1:25",
+      "02:30-03:25",
+      "03:30-4:25",
+      "4:30-5:25"
+    ],
+    "slots": {
+      "N": {
+        "day": "Monday",
+        "periods": [
+          "8:30-9:25",
+          "09:30-10:25",
+          "10:30-11:25"
+        ]
+      },
+      "O": {
+        "day": "Monday",
+        "periods": [
+          "02:30-03:25",
+          "03:30-4:25",
+          "4:30-5:25"
+        ]
+      },
+      "P": {
+        "day": "Wednesday",
+        "periods": [
+          "8:30-9:25",
+          "09:30-10:25",
+          "10:30-11:25"
+        ]
+      },
+      "Q": {
+        "day": "Wednesday",
+        "periods": [
+          "02:30-03:25",
+          "03:30-4:25",
+          "4:30-5:25"
+        ]
+      },
+      "R": {
+        "day": "Thursday",
+        "periods": [
+          "8:30-9:25",
+          "09:30-10:25",
+          "10:30-11:25"
+        ]
+      },
+      "S": {
+        "day": "Thursday",
+        "periods": [
+          "02:30-03:25",
+          "03:30-4:25",
+          "4:30-5:25"
+        ]
+      },
+      "T": {
+        "day": "Friday",
+        "periods": [
+          "8:30-9:25",
+          "09:30-10:25",
+          "10:30-11:25"
+        ]
+      },
+      "U": {
+        "day": "Friday",
+        "periods": [
+          "02:30-03:25",
+          "03:30-4:25",
+          "4:30-5:25"
+        ]
+      },
+      "V": {
+        "day": "Tuesday",
+        "periods": [
+          "8:30-9:25",
+          "09:30-10:25",
+          "10:30-11:25"
+        ]
+      },
+      "W": {
+        "day": "Tuesday",
+        "periods": [
+          "02:30-03:25",
+          "03:30-4:25",
+          "4:30-5:25"
+        ]
+      }
+    }
+  }
+}
