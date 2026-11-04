@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Play, Loader2, Check, AlertTriangle, Cpu, Users, CalendarClock,
-  ListChecks, Boxes, Sparkles, Database, Info,
+  ListChecks, Boxes, Sparkles, Database,
 } from "lucide-react";
 import { apiStream } from "../../lib/api";
 
@@ -24,7 +24,6 @@ export default function RunPanel({ counts, onDone }) {
   const [detail, setDetail] = useState("");
   const [log, setLog] = useState([]);
   const [error, setError] = useState(null);
-  const [maxPerTa, setMaxPerTa] = useState(1);
   const logRef = useRef(null);
 
   useEffect(() => {
@@ -45,7 +44,7 @@ export default function RunPanel({ counts, onDone }) {
     let runId = null;
 
     try {
-      await apiStream("/api/ta/allocate", { max_courses_per_ta: maxPerTa }, (ev) => {
+      await apiStream("/api/ta/allocate", { max_courses_per_ta: 1 }, (ev) => {
         if (ev.type === "progress") {
           setPct(ev.pct);
           setPhase(ev.phase);
@@ -80,27 +79,8 @@ export default function RunPanel({ counts, onDone }) {
           <h3 className="font-semibold text-slate-900">Run the allocator</h3>
           <p className="mt-1 text-sm leading-relaxed text-slate-500">
             Assigns TAs to every course that requested them, honouring class
-            clashes and preferences.
+            clashes and preferences. Each TA is assigned to at most 1 course.
           </p>
-
-          <label className="mt-4 block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Maximum courses per TA
-            </span>
-            <input
-              type="number"
-              min="1"
-              max="10"
-              value={maxPerTa}
-              onChange={(e) => setMaxPerTa(Math.max(1, Number(e.target.value)))}
-              disabled={running}
-              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50"
-            />
-            <span className="mt-1.5 flex gap-1.5 text-xs text-slate-500">
-              <Info size={14} className="mt-px shrink-0" />
-              If &gt; 1, the solver also forbids pairs whose timings overlap.
-            </span>
-          </label>
 
           {missing.length > 0 && (
             <div className="mt-4 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">

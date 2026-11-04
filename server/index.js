@@ -21,8 +21,8 @@ app.use((req, res, next) => {
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Simulate-Role, X-Simulate-User");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS");
   }
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
@@ -49,7 +49,7 @@ app.use("/api/optimization", optimizationRoutes);
 app.use("/api/ta", taRoutes);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, async () => {
+app.listen(PORT, "0.0.0.0", async () => {
   console.log(`Server running on http://localhost:${PORT}`);
   try {
     await testSupabaseConnection();

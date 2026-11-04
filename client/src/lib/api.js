@@ -9,7 +9,18 @@ export const apiUrl = (path) => `${BASE}${path}`;
 async function authHeaders() {
   const { data } = await supabase.auth.getSession();
   const token = data?.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+  // Testing override for roles: if set in localStorage, forward as X-Simulate-Role and X-Simulate-User
+  const simulatedRole = localStorage.getItem("csdesk_simulate_role");
+  if (simulatedRole) {
+    headers["X-Simulate-Role"] = simulatedRole;
+  }
+  const simulatedUser = localStorage.getItem("csdesk_simulate_user");
+  if (simulatedUser) {
+    headers["X-Simulate-User"] = simulatedUser;
+  }
+  return headers;
 }
 
 async function unwrap(res) {
@@ -29,6 +40,14 @@ export async function apiGet(path) {
 export async function apiPost(path, body) {
   return unwrap(await fetch(apiUrl(path), {
     method: "POST",
+    headers: { ...(await authHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  }));
+}
+
+export async function apiPatch(path, body) {
+  return unwrap(await fetch(apiUrl(path), {
+    method: "PATCH",
     headers: { ...(await authHeaders()), "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
   }));

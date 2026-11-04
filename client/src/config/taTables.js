@@ -64,23 +64,24 @@ export const CSV_UPLOADS = [
       "Only M.Tech registrations matter: they are what make a TA unavailable in a slot.",
     ],
   },
-  {
-    key: "ta_requirements",
-    title: "TA Requirements",
-    table: "ta_requirements",
-    endpoint: "/api/ta/upload/csv/ta_requirements",
-    columns: ["course_code", "tas_required", "preferred_ta_rolls"],
-    required: ["course_code", "tas_required"],
-    sample: [
-      ["CSL301", "3", "M25CS002;P24CS007;M25DS007"],
-      ["CSL302", "2", "M25CS011"],
-    ],
-    notes: [
-      "tas_required must be a positive whole number.",
-      "preferred_ta_rolls is a ';'-separated list of roll numbers, best first. It may be left blank.",
-    ],
-  },
 ];
+
+export const TA_REQUIREMENTS_CSV_SPEC = {
+  key: "ta_requirements",
+  title: "TA Requirements",
+  table: "ta_requirements",
+  endpoint: "/api/ta/upload/csv/ta_requirements",
+  columns: ["course_code", "tas_required", "preferred_ta_rolls"],
+  required: ["course_code", "tas_required"],
+  sample: [
+    ["CSL301", "3", "M25CS002;P24CS007;M25DS007"],
+    ["CSL302", "2", "M25CS011"],
+  ],
+  notes: [
+    "tas_required must be a positive whole number.",
+    "preferred_ta_rolls is a ';'-separated list of roll numbers, best first. It may be left blank.",
+  ],
+};
 
 export const PREVIEW_TABLES = [
   { key: "courses", label: "Courses" },

@@ -15,8 +15,63 @@ const AuthContext = createContext(undefined);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [role, setRole] = useState(localStorage.getItem("csdesk_simulate_role") || "student");
+  const [simulatedUser, setSimulatedUser] = useState(localStorage.getItem("csdesk_simulate_user") || "");
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
+
+  const fetchProfile = useCallback(async (sessionUser) => {
+    if (!sessionUser) return;
+    try {
+      const simulatedR = localStorage.getItem("csdesk_simulate_role");
+      if (simulatedR) {
+        setRole(simulatedR);
+        return;
+      }
+      const { data, error } = await supabase
+        .from("users")
+        .select("role, name")
+        .eq("email", sessionUser.email?.toLowerCase())
+        .maybeSingle();
+
+      if (data?.role) {
+        setRole(data.role);
+      } else {
+        setRole("student");
+      }
+    } catch (err) {
+      setRole("student");
+    }
+  }, []);
+
+  const switchRole = useCallback((newRole, newSimEmail = "") => {
+    if (newRole) {
+      localStorage.setItem("csdesk_simulate_role", newRole);
+      setRole(newRole);
+      if (newSimEmail) {
+        localStorage.setItem("csdesk_simulate_user", newSimEmail);
+        setSimulatedUser(newSimEmail);
+      } else {
+        localStorage.removeItem("csdesk_simulate_user");
+        setSimulatedUser("");
+      }
+    } else {
+      localStorage.removeItem("csdesk_simulate_role");
+      localStorage.removeItem("csdesk_simulate_user");
+      setSimulatedUser("");
+      if (user) fetchProfile(user);
+    }
+  }, [user, fetchProfile]);
+
+  const switchSimulatedEmail = useCallback((email) => {
+    if (email) {
+      localStorage.setItem("csdesk_simulate_user", email);
+      setSimulatedUser(email);
+    } else {
+      localStorage.removeItem("csdesk_simulate_user");
+      setSimulatedUser("");
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -37,6 +92,9 @@ export function AuthProvider({ children }) {
 
       if (active) {
         setUser(session?.user ?? null);
+        if (session?.user) {
+          await fetchProfile(session.user);
+        }
       }
     }
 
@@ -88,6 +146,10 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider
       value={{
         user,
+        role,
+        simulatedUser,
+        switchRole,
+        switchSimulatedEmail,
         loading,
         authError,
         setAuthError,

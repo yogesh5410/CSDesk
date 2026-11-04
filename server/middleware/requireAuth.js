@@ -25,5 +25,54 @@ export async function requireAuth(req, res, next) {
   }
 
   req.user = data.user;
+
+  // Resolve user role from public.users table (admin, faculty, ta, student)
+  try {
+    const { data: dbUser } = await supabase
+      .from("users")
+      .select("email, name, role")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (dbUser) {
+      req.user.role = dbUser.role || "student";
+      req.user.name = dbUser.name || data.user.user_metadata?.full_name || email.split("@")[0];
+    } else {
+      // Default fallback for any domain account not explicitly assigned
+      req.user.role = "student";
+      req.user.name = data.user.user_metadata?.full_name || email.split("@")[0];
+    }
+  } catch (err) {
+    req.user.role = "student";
+  }
+
+  // Developer testing override: allow switching role dynamically via X-Simulate-Role / X-Simulate-User
+  const simulatedRole = req.headers["x-simulate-role"];
+  if (simulatedRole && ["admin", "faculty", "ta", "student"].includes(simulatedRole.toLowerCase())) {
+    req.user.role = simulatedRole.toLowerCase();
+  }
+
+  const simulatedUserEmail = req.headers["x-simulate-user"];
+  if (simulatedUserEmail) {
+    try {
+      const cleanEmail = simulatedUserEmail.toLowerCase().trim();
+      const { data: simUser } = await supabase
+        .from("users")
+        .select("email, name, role")
+        .eq("email", cleanEmail)
+        .maybeSingle();
+
+      if (simUser) {
+        req.user.email = simUser.email;
+        req.user.name = simUser.name;
+        req.user.role = simUser.role;
+      } else {
+        req.user.email = cleanEmail;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   next();
 }

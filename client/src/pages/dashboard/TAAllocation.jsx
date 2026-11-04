@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  UsersRound, Database, Table2, Cpu, ClipboardList, RefreshCw, BookOpen,
+  UsersRound, Database, Table2, Cpu, ClipboardList, RefreshCw, BookOpen, UserCheck, CheckSquare,
 } from "lucide-react";
 import { apiGet } from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 import { PDF_UPLOADS, CSV_UPLOADS } from "../../config/taTables";
 import UploadCard from "../../components/ta/UploadCard";
 import TablePreview from "../../components/ta/TablePreview";
 import RunPanel from "../../components/ta/RunPanel";
 import ResultsPanel from "../../components/ta/ResultsPanel";
 import AlgorithmNotes from "../../components/ta/AlgorithmNotes";
+import RoleAllocationView from "../../components/ta/RoleAllocationView";
+import CollectRequirementsTab from "../../components/ta/CollectRequirementsTab";
 
-const TABS = [
+const ADMIN_TABS = [
   { key: "data", label: "Data Sources", icon: Database },
+  { key: "collect", label: "Collect Requirements", icon: CheckSquare },
   { key: "preview", label: "Preview", icon: Table2 },
   { key: "run", label: "Run", icon: Cpu },
   { key: "results", label: "Results", icon: ClipboardList },
@@ -19,26 +23,51 @@ const TABS = [
 ];
 
 export default function TAAllocation() {
-  const [tab, setTab] = useState("data");
+  const { role, simulatedUser } = useAuth();
+  const isAdmin = role === "admin";
+
+  const [tab, setTab] = useState(isAdmin ? "data" : "roleView");
   const [tables, setTables] = useState(null);
   const [result, setResult] = useState(null);
+  const [roleViewData, setRoleViewData] = useState(null);
+  const [requirementsStatus, setRequirementsStatus] = useState(null);
+  const [facultyReqData, setFacultyReqData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Sync tab if role switches between admin and non-admin
+  useEffect(() => {
+    if (!isAdmin) {
+      setTab("roleView");
+    } else if (tab === "roleView") {
+      setTab("data");
+    }
+  }, [isAdmin]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const { tables } = await apiGet("/api/ta/tables");
-      setTables(tables);
+      if (isAdmin) {
+        const { tables } = await apiGet("/api/ta/tables");
+        setTables(tables);
+        const reqStatus = await apiGet("/api/ta/requirements/status");
+        setRequirementsStatus(reqStatus);
+      }
+      const [roleData, facReq] = await Promise.all([
+        apiGet("/api/ta/role-view"),
+        apiGet("/api/ta/requirements/my-courses"),
+      ]);
+      setRoleViewData(roleData);
+      setFacultyReqData(facReq);
       setError(null);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAdmin]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh, role, simulatedUser]);
 
   // reopen the most recent saved run so results survive a page reload
   useEffect(() => {
@@ -51,9 +80,9 @@ export default function TAAllocation() {
         const { unfilled = [], starved = [], ...stats } = run.summary || {};
         setResult((cur) => cur ?? {
           status: run.status, allocations, unfilled, starved, stats,
-          run_id: run.id, restored: true,
+          run_id: run.id, is_published: run.is_published, restored: true,
         });
-      } catch { /* no previous run */ }
+      } catch { /* no previous run or not admin */ }
     })();
   }, []);
 
@@ -68,12 +97,18 @@ export default function TAAllocation() {
               <UsersRound size={22} />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-                TA Allocation
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                  TA Allocation
+                </h1>
+                <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-indigo-700 ring-1 ring-indigo-200">
+                  {role} view
+                </span>
+              </div>
               <p className="mt-1 text-sm text-slate-500">
-                Upload the inputs, run the solver, and assign teaching assistants
-                without timetable clashes.
+                {isAdmin
+                  ? "Upload the inputs, run the solver, and publish teaching assistant allocations."
+                  : "View published course teaching assistants and faculty allocations."}
               </p>
             </div>
           </div>
@@ -85,28 +120,47 @@ export default function TAAllocation() {
           </button>
         </div>
 
-        <nav className="-mx-1 mt-5 overflow-x-auto pb-1">
-          <div className="flex min-w-max gap-1.5 rounded-xl bg-slate-100 p-1.5">
-            {TABS.map(({ key, label, icon: Icon }) => (
+        {isAdmin ? (
+          <nav className="-mx-1 mt-5 overflow-x-auto pb-1">
+            <div className="flex min-w-max gap-1.5 rounded-xl bg-slate-100 p-1.5">
+              {ADMIN_TABS.map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setTab(key)}
+                  className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition ${
+                    tab === key ? "bg-white text-indigo-700 shadow-sm"
+                                : "text-slate-500 hover:text-slate-700"}`}
+                >
+                  <Icon size={16} /> {label}
+                </button>
+              ))}
               <button
-                key={key}
-                onClick={() => setTab(key)}
+                onClick={() => setTab("roleView")}
                 className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition ${
-                  tab === key ? "bg-white text-indigo-700 shadow-sm"
-                              : "text-slate-500 hover:text-slate-700"}`}
+                  tab === "roleView" ? "bg-white text-indigo-700 shadow-sm"
+                                     : "text-slate-500 hover:text-slate-700"}`}
               >
-                <Icon size={16} /> {label}
+                <UserCheck size={16} /> Preview Role View
               </button>
-            ))}
-          </div>
-        </nav>
+            </div>
+          </nav>
+        ) : null}
       </header>
 
       {error && (
         <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
       )}
 
-      {tab === "data" && (
+      {/* Non-admin view OR admin previewing the role view */}
+      {(!isAdmin || tab === "roleView") && (
+        <RoleAllocationView
+          roleView={roleViewData}
+          facultyReqData={facultyReqData}
+          onRefresh={refresh}
+        />
+      )}
+
+      {isAdmin && tab === "data" && (
         <div className="space-y-6">
           <section>
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -134,18 +188,33 @@ export default function TAAllocation() {
         </div>
       )}
 
-      {tab === "preview" && tables && <TablePreview tables={tables} />}
+      {isAdmin && tab === "collect" && (
+        <CollectRequirementsTab
+          statusData={requirementsStatus}
+          onRefresh={refresh}
+        />
+      )}
 
-      {tab === "run" && (
+      {isAdmin && tab === "preview" && tables && <TablePreview tables={tables} />}
+
+      {isAdmin && tab === "run" && (
         <RunPanel
           counts={tables}
           onDone={(r) => { setResult(r); setTab("results"); refresh(); }}
         />
       )}
 
-      {tab === "results" && <ResultsPanel result={result} />}
+      {isAdmin && tab === "results" && (
+        <ResultsPanel
+          result={result}
+          onPublishedChange={(isPublished) => {
+            setResult((r) => r ? { ...r, is_published: isPublished } : r);
+            refresh();
+          }}
+        />
+      )}
 
-      {tab === "algorithm" && <AlgorithmNotes />}
+      {isAdmin && tab === "algorithm" && <AlgorithmNotes />}
     </div>
   );
 }

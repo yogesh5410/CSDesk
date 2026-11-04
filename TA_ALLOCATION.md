@@ -331,9 +331,7 @@ $$x_{t,c} \in \{0,1\} \qquad \text{TA } t \text{ assigned to course } c$$
 
 $$\sum_{t} x_{t,c} \le \text{required}(c) \quad \forall c \qquad \text{(never over-staff)}$$
 
-$$\sum_{c} x_{t,c} \le K \quad \forall t \qquad \text{(workload cap, } K = \text{user input})$$
-
-$$x_{t,c_1} + x_{t,c_2} \le 1 \quad \text{if } K>1 \text{ and } \text{cells}(c_1) \cap \text{cells}(c_2) \neq \emptyset$$
+$$\sum_{c} x_{t,c} \le 1 \quad \forall t \qquad \text{(workload cap: each TA serves at most 1 course)}$$
 
 **Objective — maximise**
 

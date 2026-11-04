@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import {
   Download, Star, GraduationCap, AlertTriangle, CheckCircle2,
-  ChevronDown, Inbox, Users,
+  ChevronDown, Inbox, Users, Globe, Lock, Loader2,
 } from "lucide-react";
-import { apiDownload } from "../../lib/api";
+import { apiDownload, apiPatch } from "../../lib/api";
 
 function Stat({ label, value, sub, tone = "slate" }) {
   const tones = {
@@ -21,8 +21,27 @@ function Stat({ label, value, sub, tone = "slate" }) {
   );
 }
 
-export default function ResultsPanel({ result }) {
+export default function ResultsPanel({ result, onPublishedChange }) {
   const [open, setOpen] = useState(() => new Set());
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState(result?.is_published ?? false);
+
+  async function handleTogglePublish() {
+    if (!result?.run_id) return;
+    setPublishing(true);
+    try {
+      const nextState = !published;
+      const res = await apiPatch(`/api/ta/runs/${result.run_id}/publish`, {
+        is_published: nextState,
+      });
+      setPublished(nextState);
+      onPublishedChange?.(nextState);
+    } catch (err) {
+      alert("Failed to update publish state: " + err.message);
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   const grouped = useMemo(() => {
     const map = new Map();
@@ -100,15 +119,37 @@ export default function ResultsPanel({ result }) {
             {grouped.length} courses · {result.allocations.length} assignments
           </span>
         </h3>
-        {result.run_id && (
-          <button
-            onClick={() => apiDownload(`/api/ta/runs/${result.run_id}/export.csv`,
-                                       `ta-allocation-run-${result.run_id}.csv`)}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-          >
-            <Download size={16} /> Download CSV
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {result.run_id && (
+            <button
+              onClick={handleTogglePublish}
+              disabled={publishing}
+              className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition ${
+                published
+                  ? "bg-emerald-600 hover:bg-emerald-700"
+                  : "bg-indigo-600 hover:bg-indigo-700"
+              }`}
+            >
+              {publishing ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : published ? (
+                <Lock size={16} />
+              ) : (
+                <Globe size={16} />
+              )}
+              {published ? "Unpublish Results" : "Publish Results"}
+            </button>
+          )}
+          {result.run_id && (
+            <button
+              onClick={() => apiDownload(`/api/ta/runs/${result.run_id}/export.csv`,
+                                         `ta-allocation-run-${result.run_id}.csv`)}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              <Download size={16} /> Download CSV
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-3">

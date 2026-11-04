@@ -1,7 +1,9 @@
+import { useState, useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import { ChevronsLeft, ChevronsRight, LogOut, X } from "lucide-react";
 import { navItems } from "../../config/navigation";
 import { useAuth } from "../../context/AuthContext";
+import { apiGet } from "../../lib/api";
 
 function getInitials(user) {
   const name = user?.user_metadata?.full_name || user?.email || "";
@@ -16,8 +18,32 @@ export default function Sidebar({
   mobileOpen,
   onCloseMobile,
 }) {
-  const { user, signOut } = useAuth();
+  const { user, role, simulatedUser, switchRole, switchSimulatedEmail, signOut } = useAuth();
   const initials = getInitials(user);
+
+  const [availableUsers, setAvailableUsers] = useState([]);
+
+  useEffect(() => {
+    // Fetch users list for impersonation/testing
+    apiGet("/api/ta/users/by-role")
+      .then((res) => {
+        if (res?.users) setAvailableUsers(res.users);
+      })
+      .catch(() => {});
+  }, []);
+
+  const facultyUsers = availableUsers.filter((u) => u.role === "faculty");
+  const taUsers = availableUsers.filter((u) => u.role === "ta");
+
+  function handleRoleChange(newRole) {
+    if (newRole === "faculty" && facultyUsers.length > 0) {
+      switchRole(newRole, facultyUsers[0].email);
+    } else if (newRole === "ta" && taUsers.length > 0) {
+      switchRole(newRole, taUsers[0].email);
+    } else {
+      switchRole(newRole, "");
+    }
+  }
 
   return (
     <>
@@ -29,11 +55,11 @@ export default function Sidebar({
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-green-900 text-white transition-all duration-200 md:static md:z-auto ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-green-900 text-white transition-all duration-200 md:sticky md:top-0 md:h-screen md:z-40 ${
           collapsed ? "md:w-20" : "md:w-64"
         } ${mobileOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0`}
       >
-        <div className="flex items-center justify-between px-4 py-5">
+        <div className="flex items-center justify-between px-4 py-5 shrink-0">
           <div
             className={`flex items-center gap-2 overflow-hidden ${
               collapsed ? "md:w-full md:justify-center" : ""
@@ -55,6 +81,64 @@ export default function Sidebar({
             <X size={20} />
           </button>
         </div>
+
+        {/* Role Switcher for Testing & Display */}
+        {!collapsed && (
+          <div className="mx-3 mb-2 rounded-xl bg-white/10 p-2.5 text-xs space-y-2 shrink-0">
+            <div className="flex items-center justify-between text-green-200">
+              <span className="font-semibold uppercase tracking-wider text-[10px]">Testing Role</span>
+              <span className="rounded bg-green-500/30 px-1.5 py-0.5 font-bold uppercase text-white">
+                {role}
+              </span>
+            </div>
+            <select
+              value={role}
+              onChange={(e) => handleRoleChange(e.target.value)}
+              className="w-full rounded-lg border border-white/20 bg-green-950/80 px-2 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-white"
+            >
+              <option value="admin">admin</option>
+              <option value="faculty">faculty</option>
+              <option value="ta">ta</option>
+              <option value="student">student</option>
+            </select>
+
+            {/* When Faculty role is chosen, allow picking any specific Faculty member */}
+            {role === "faculty" && facultyUsers.length > 0 && (
+              <div className="pt-1 border-t border-white/10">
+                <span className="block text-[10px] text-green-300 mb-1 font-medium">Impersonate Faculty:</span>
+                <select
+                  value={simulatedUser || facultyUsers[0]?.email}
+                  onChange={(e) => switchSimulatedEmail(e.target.value)}
+                  className="w-full rounded-lg border border-white/20 bg-green-950/80 px-2 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-white truncate"
+                >
+                  {facultyUsers.map((f) => (
+                    <option key={f.email} value={f.email}>
+                      {f.name} ({f.email.split("@")[0]})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* When TA role is chosen, allow picking any specific TA */}
+            {role === "ta" && taUsers.length > 0 && (
+              <div className="pt-1 border-t border-white/10">
+                <span className="block text-[10px] text-green-300 mb-1 font-medium">Impersonate TA:</span>
+                <select
+                  value={simulatedUser || taUsers[0]?.email}
+                  onChange={(e) => switchSimulatedEmail(e.target.value)}
+                  className="w-full rounded-lg border border-white/20 bg-green-950/80 px-2 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-white truncate"
+                >
+                  {taUsers.map((t) => (
+                    <option key={t.email} value={t.email}>
+                      {t.name} ({t.email.split("@")[0]})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
           {navItems.map(({ label, icon: Icon, path, end }) => (
@@ -78,7 +162,7 @@ export default function Sidebar({
           ))}
         </nav>
 
-        <div className="border-t border-white/10 px-3 py-3">
+        <div className="border-t border-white/10 px-3 py-3 shrink-0">
           <button
             type="button"
             onClick={onToggleCollapse}
@@ -96,7 +180,7 @@ export default function Sidebar({
         </div>
 
         <div
-          className={`flex items-center gap-3 border-t border-white/10 px-4 py-4 ${
+          className={`flex items-center gap-3 border-t border-white/10 px-4 py-4 shrink-0 bg-green-950/40 ${
             collapsed ? "md:justify-center" : ""
           }`}
         >

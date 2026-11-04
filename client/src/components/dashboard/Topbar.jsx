@@ -12,7 +12,7 @@ export default function Topbar({ onOpenMobileSidebar }) {
   const title = current?.label || "Dashboard";
 
   return (
-    <header className="flex items-center gap-4 border-b border-slate-200 bg-white px-6 py-4">
+    <header className="sticky top-0 z-30 flex items-center gap-4 border-b border-slate-200 bg-white/95 backdrop-blur-sm px-6 py-4 shadow-sm">
       <button
         type="button"
         onClick={onOpenMobileSidebar}
