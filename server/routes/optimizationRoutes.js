@@ -2,71 +2,190 @@ import express from 'express';
 import { exec } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
+import multer from 'multer';
+import { supabase } from '../supabaseClient.js';
 
 const router = express.Router();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-import fs from 'fs';
-import multer from 'multer';
-
 const upload = multer({ dest: '/tmp/' });
 
+function mapSlotToPeriods(labSlot, timetableSlots) {
+  if (!labSlot || !timetableSlots) return [];
+  const fullSlotStr = labSlot.split('/')[0].trim();
+  const slotParts = fullSlotStr.split(/&|,/);
+  const periods = [];
+
+  slotParts.forEach(part => {
+    part = part.trim();
+    if (!part) return;
+
+    const letters = part.match(/[A-Z]+/)?.[0] || '';
+    const numbers = part.match(/[0-9]+/)?.[0] || '';
+
+    for (let i = 0; i < letters.length; i++) {
+      const baseLetter = letters[i];
+      const slotInfo = timetableSlots[baseLetter];
+      if (slotInfo && Array.isArray(slotInfo.periods)) {
+        const day = slotInfo.day;
+        const tPeriods = slotInfo.periods;
+
+        if (!numbers) {
+          tPeriods.forEach(t => periods.push(`${day}_${t}`));
+        } else {
+          for (let j = 0; j < numbers.length; j++) {
+            const idx = parseInt(numbers[j], 10) - 1;
+            if (idx >= 0 && idx < tPeriods.length) {
+              periods.push(`${day}_${tPeriods[idx]}`);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  return [...new Set(periods)];
+}
+
 router.post('/parse-pdf', upload.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No file uploaded" });
-  }
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
   const filePath = req.file.path;
-  const optimizationDir = path.join(__dirname, '..', 'optimization');
-  const pythonExecutable = path.join(optimizationDir, 'venv', 'bin', 'python');
+  const optimizationDir = path.join(__dirname, '..', 'optimization', 'lab_allocation');
+  const pythonExecutable = path.join(__dirname, '..', 'optimization', 'venv', 'bin', 'python');
   const parserScript = path.join(optimizationDir, 'parser.py');
 
-  const command = `${pythonExecutable} ${parserScript} ${filePath}`;
-
-  exec(command, { cwd: optimizationDir }, (error, stdout, stderr) => {
-    // Clean up uploaded file
-    try {
-      fs.unlinkSync(filePath);
-    } catch (e) {}
-
-    if (error) {
-      console.error(`Parser exec error: ${error}`);
-      return res.status(500).json({ error: "Failed to parse PDF", details: stderr });
-    }
-    
+  exec(`${pythonExecutable} ${parserScript} ${filePath}`, { cwd: optimizationDir }, (error, stdout, stderr) => {
+    try { fs.unlinkSync(filePath); } catch (e) {}
+    if (error) return res.status(500).json({ error: "Failed to parse PDF", details: stderr });
     try {
       const result = JSON.parse(stdout);
-      if (result.error) {
-        return res.status(500).json({ error: result.error });
-      }
+      if (result.error) return res.status(500).json({ error: result.error });
       res.json(result);
     } catch (parseError) {
-      console.error("Failed to parse Python output:", stdout);
       res.status(500).json({ error: "Invalid parser output", details: parseError.message });
     }
   });
 });
 
-router.get('/data', (req, res) => {
-  const dummyDataPath = path.join(__dirname, '..', 'optimization', 'dummy_data.json');
+router.post('/parse-timetable-pdf', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  const filePath = req.file.path;
+  const optimizationDir = path.join(__dirname, '..', 'optimization', 'lab_allocation');
+  const pythonExecutable = path.join(__dirname, '..', 'optimization', 'venv', 'bin', 'python');
+  const parserScript = path.join(optimizationDir, 'parse_timetable.py');
+
+  exec(`${pythonExecutable} ${parserScript} ${filePath}`, { cwd: optimizationDir }, (error, stdout, stderr) => {
+    try { fs.unlinkSync(filePath); } catch (e) {}
+    if (error) return res.status(500).json({ error: "Failed to parse timetable PDF", details: stderr });
+    try {
+      const result = JSON.parse(stdout);
+      if (result.error) return res.status(500).json({ error: result.error });
+      res.json(result);
+    } catch (parseError) {
+      res.status(500).json({ error: "Invalid parser output", details: parseError.message });
+    }
+  });
+});
+
+router.get('/data', async (req, res) => {
   try {
-    const data = fs.readFileSync(dummyDataPath, 'utf8');
-    res.json(JSON.parse(data));
+    const { data: labs, error: labsErr } = await supabase.from('lab_allocation_labs').select('*');
+    if (labsErr) throw labsErr;
+    const { data: courses, error: coursesErr } = await supabase.from('lab_allocation_courses').select('*');
+    if (coursesErr) throw coursesErr;
+    const { data: timetable, error: timeErr } = await supabase.from('lab_allocation_timetable').select('*').eq('id', 'singleton').maybeSingle();
+    if (timeErr) throw timeErr;
+
+    let timetableData = timetable ? { headers: timetable.headers, slots: timetable.slots } : null;
+
+    // Auto-correct any legacy timetable slots where morning slots were mapped from index 0 instead of index 1
+    if (timetableData && timetableData.slots) {
+      const morningSlots = ['N', 'V', 'P', 'R', 'T'];
+      morningSlots.forEach(slotKey => {
+        if (timetableData.slots[slotKey] && Array.isArray(timetableData.slots[slotKey].periods)) {
+          if (timetableData.slots[slotKey].periods[0] === '8:30-9:25') {
+            timetableData.slots[slotKey].periods = ['09:30-10:25', '10:30-11:25', '11:30-12:25'];
+          }
+        }
+      });
+    }
+
+    // Dynamically recompute course periods if lab_slot exists and timetableData is available
+    let sanitizedCourses = (courses || []).map(c => {
+      let periods = c.periods || [];
+      if (c.lab_slot && timetableData && timetableData.slots) {
+        const computed = mapSlotToPeriods(c.lab_slot, timetableData.slots);
+        if (computed.length > 0) {
+          periods = computed;
+        }
+      }
+      return { ...c, periods };
+    });
+
+    res.json({
+      data: { labs: labs || [], courses: sanitizedCourses, slots: [] },
+      timetableData: timetableData
+    });
   } catch (error) {
-    res.status(500).json({ error: "Could not read data" });
+    console.error("DB read error:", error);
+    res.status(500).json({ error: "Could not read data from db" });
   }
 });
 
-router.post('/allocate', (req, res) => {
-  const optimizationDir = path.join(__dirname, '..', 'optimization');
-  const pythonExecutable = path.join(optimizationDir, 'venv', 'bin', 'python');
+router.post('/save', async (req, res) => {
+  const { labs, courses, timetableData } = req.body;
+  try {
+    if (labs) {
+      const { error: delErr } = await supabase.from('lab_allocation_labs').delete().neq('id', 'xyz123'); // delete all
+      if (delErr) throw delErr;
+      if (labs.length > 0) {
+        const { error: insErr } = await supabase.from('lab_allocation_labs').insert(labs.map(l => ({
+          id: l.id || Math.random().toString(36).substr(2, 9),
+          name: l.name, capacity: parseInt(l.capacity) || 0, has_gpu: Boolean(l.has_gpu)
+        })));
+        if (insErr) throw insErr;
+      }
+    }
+    if (courses) {
+      const { error: delErr } = await supabase.from('lab_allocation_courses').delete().neq('code', 'xyz123');
+      if (delErr) throw delErr;
+      if (courses.length > 0) {
+        const { error: insErr } = await supabase.from('lab_allocation_courses').insert(courses.map(c => ({
+          code: c.code, name: c.name, student_count: parseInt(c.student_count) || 0,
+          gpu_required: Boolean(c.gpu_required), academic_year: c.academic_year,
+          instructor: c.instructor, duration: parseInt(c.duration) || 2, periods: c.periods || [],
+          lab_slot: c.lab_slot || null
+        })));
+        if (insErr) throw insErr;
+      }
+    }
+    if (timetableData) {
+      const { error: upsErr } = await supabase.from('lab_allocation_timetable').upsert({
+        id: 'singleton',
+        headers: timetableData.headers || [],
+        slots: timetableData.slots || {}
+      });
+      if (upsErr) throw upsErr;
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error("DB write error:", error);
+    res.status(500).json({ error: "Could not save data to db", details: error.message || error });
+  }
+});
+
+router.post('/allocate', async (req, res) => {
+  const optimizationDir = path.join(__dirname, '..', 'optimization', 'lab_allocation');
+  const pythonExecutable = path.join(__dirname, '..', 'optimization', 'venv', 'bin', 'python');
   const solverScript = path.join(optimizationDir, 'solver.py');
   const dummyDataPath = path.join(optimizationDir, 'dummy_data.json');
 
-  // If data is provided, overwrite dummy_data.json
-  if (req.body && req.body.labs && req.body.courses && req.body.slots) {
+  if (req.body && req.body.labs && req.body.courses) {
     try {
       fs.writeFileSync(dummyDataPath, JSON.stringify(req.body, null, 2));
     } catch (err) {
@@ -74,19 +193,12 @@ router.post('/allocate', (req, res) => {
     }
   }
 
-  const command = `${pythonExecutable} ${solverScript} ${dummyDataPath}`;
-
-  exec(command, { cwd: optimizationDir }, (error, stdout, stderr) => {
-    if (error) {
-      console.error(`exec error: ${error}`);
-      return res.status(500).json({ status: "ERROR", message: "Failed to run optimization solver", details: stderr });
-    }
-    
+  exec(`${pythonExecutable} ${solverScript} ${dummyDataPath}`, { cwd: optimizationDir }, (error, stdout, stderr) => {
+    if (error) return res.status(500).json({ status: "ERROR", message: "Failed to run optimization solver", details: stderr });
     try {
       const result = JSON.parse(stdout);
       res.json(result);
     } catch (parseError) {
-      console.error("Failed to parse Python output:", stdout);
       res.status(500).json({ status: "ERROR", message: "Invalid output from solver", details: parseError.message });
     }
   });

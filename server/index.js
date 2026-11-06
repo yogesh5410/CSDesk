@@ -56,5 +56,6 @@ app.listen(PORT, "0.0.0.0", async () => {
     console.log("Connected to Supabase");
   } catch (error) {
     console.error("Supabase connection failed:", error.message);
+    if (error.cause) console.error("Cause:", error.cause);
   }
 });

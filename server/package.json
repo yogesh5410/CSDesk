@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon --ignore optimization/dummy_data.json index.js",
+    "dev": "nodemon --ignore optimization/lab_allocation/dummy_data.json index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "db:migrate": "node db/migrate.js",
     "seed:faculty": "node db/seedFaculty.js"
