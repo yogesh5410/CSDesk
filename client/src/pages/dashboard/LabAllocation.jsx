@@ -3,7 +3,7 @@ import {
   FlaskConical, Cpu, Users, Clock, Calendar, CheckCircle2, 
   AlertCircle, RefreshCw, LayoutGrid, Database, Play, TableProperties,
   Plus, Save, GraduationCap, X, User, Upload, FileText,
-  Table2, ClipboardList, BookOpen, ChevronDown, FileSpreadsheet, File
+  Table2, ClipboardList, BookOpen, ChevronDown, ChevronUp, Copy, FileSpreadsheet, File
 } from "lucide-react";
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -45,6 +45,16 @@ const LabAllocation = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [isUploadingTimetable, setIsUploadingTimetable] = useState(false);
   const [timetableData, setTimetableData] = useState(null);
+  const [timetableUploaded, setTimetableUploaded] = useState(false);
+  const [showCsvFormat, setShowCsvFormat] = useState(false);
+  const [copiedCsv, setCopiedCsv] = useState(false);
+
+  const handleCopyCsvTemplate = () => {
+    const csvContent = "ID,Lab Name,Capacity,Has GPU\n1,TL1 (106),84,TRUE\n2,TL2 (105),20,FALSE\n3,ED1 (312),32,FALSE\n4,ED1 (308),32,FALSE\n5,ED1 (320),80,FALSE\n6,ED2 (302),80,FALSE";
+    navigator.clipboard.writeText(csvContent);
+    setCopiedCsv(true);
+    setTimeout(() => setCopiedCsv(false), 2000);
+  };
   
   const [extractedCourses, setExtractedCourses] = useState([]);
   const [showExtractedReview, setShowExtractedReview] = useState(false);
@@ -176,6 +186,7 @@ const LabAllocation = () => {
       const result = await response.json();
       if (response.ok && result.slots) {
         setTimetableData(result);
+        setTimetableUploaded(true);
         alert("Timetable extracted successfully!");
       } else {
         alert("Failed to parse Timetable PDF: " + (result.error || "Unknown error"));
@@ -281,6 +292,7 @@ const LabAllocation = () => {
         student_count: parseInt(rest.student_count),
         duration: parseInt(rest.duration) || (periods.length > 0 ? periods.length : 3),
         periods: periods,
+        lab_slot: rest.lab_slot || '',
         _unmapped: unmapped_slots
       };
     });
@@ -426,7 +438,7 @@ const LabAllocation = () => {
                    ))}
                 </div>
                 <div className="mt-auto">
-                  {timetableData ? (
+                  {timetableUploaded ? (
                     <div className="flex flex-col gap-2">
                       <div className="w-full flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 py-2 rounded-lg text-sm font-bold border border-emerald-200">
                         <CheckCircle2 className="w-5 h-5" /> Data uploaded successfully
@@ -483,16 +495,96 @@ const LabAllocation = () => {
                  </div>
                  
                  <div className="mt-4 mb-5 border border-slate-200 rounded-lg overflow-hidden">
-                    <button className="w-full flex items-center justify-between p-2.5 bg-slate-50 text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors">
-                       REQUIRED CSV FORMAT
-                       <ChevronDown className="w-4 h-4 text-slate-400" />
+                    <button 
+                      type="button"
+                      onClick={() => setShowCsvFormat(prev => !prev)}
+                      className="w-full flex items-center justify-between p-2.5 bg-slate-50 text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors"
+                    >
+                       <span>REQUIRED CSV FORMAT</span>
+                       {showCsvFormat ? (
+                         <ChevronUp className="w-4 h-4 text-slate-500" />
+                       ) : (
+                         <ChevronDown className="w-4 h-4 text-slate-400" />
+                       )}
                     </button>
+
+                    {showCsvFormat && (
+                      <div className="p-3 bg-white border-t border-slate-200 text-xs animate-in fade-in duration-200">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[11px] font-semibold text-slate-500">Columns: ID, Lab Name, Capacity, Has GPU</span>
+                          <button
+                            type="button"
+                            onClick={handleCopyCsvTemplate}
+                            className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 transition-colors"
+                          >
+                            {copiedCsv ? <CheckCircle2 className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                            {copiedCsv ? "Copied!" : "Copy Template"}
+                          </button>
+                        </div>
+                        <div className="overflow-x-auto border border-slate-100 rounded-md">
+                          <table className="w-full text-left border-collapse text-[11px]">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
+                                <th className="py-1 px-2 border-r border-slate-200">ID</th>
+                                <th className="py-1 px-2 border-r border-slate-200">Lab Name</th>
+                                <th className="py-1 px-2 border-r border-slate-200">Capacity</th>
+                                <th className="py-1 px-2">Has GPU</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-slate-600 font-mono">
+                              <tr>
+                                <td className="py-1 px-2 border-r border-slate-200">1</td>
+                                <td className="py-1 px-2 border-r border-slate-200 font-sans font-semibold">TL1 (106)</td>
+                                <td className="py-1 px-2 border-r border-slate-200">84</td>
+                                <td className="py-1 px-2 text-emerald-600 font-bold">TRUE</td>
+                              </tr>
+                              <tr>
+                                <td className="py-1 px-2 border-r border-slate-200">2</td>
+                                <td className="py-1 px-2 border-r border-slate-200 font-sans font-semibold">TL2 (105)</td>
+                                <td className="py-1 px-2 border-r border-slate-200">20</td>
+                                <td className="py-1 px-2 text-slate-500 font-bold">FALSE</td>
+                              </tr>
+                              <tr>
+                                <td className="py-1 px-2 border-r border-slate-200">3</td>
+                                <td className="py-1 px-2 border-r border-slate-200 font-sans font-semibold">ED1 (312)</td>
+                                <td className="py-1 px-2 border-r border-slate-200">32</td>
+                                <td className="py-1 px-2 text-slate-500 font-bold">FALSE</td>
+                              </tr>
+                              <tr>
+                                <td className="py-1 px-2 border-r border-slate-200">4</td>
+                                <td className="py-1 px-2 border-r border-slate-200 font-sans font-semibold">ED1 (308)</td>
+                                <td className="py-1 px-2 border-r border-slate-200">32</td>
+                                <td className="py-1 px-2 text-slate-500 font-bold">FALSE</td>
+                              </tr>
+                              <tr>
+                                <td className="py-1 px-2 border-r border-slate-200">5</td>
+                                <td className="py-1 px-2 border-r border-slate-200 font-sans font-semibold">ED1 (320)</td>
+                                <td className="py-1 px-2 border-r border-slate-200">80</td>
+                                <td className="py-1 px-2 text-slate-500 font-bold">FALSE</td>
+                              </tr>
+                              <tr>
+                                <td className="py-1 px-2 border-r border-slate-200">6</td>
+                                <td className="py-1 px-2 border-r border-slate-200 font-sans font-semibold">ED2 (302)</td>
+                                <td className="py-1 px-2 border-r border-slate-200">80</td>
+                                <td className="py-1 px-2 text-slate-500 font-bold">FALSE</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
                  </div>
 
                  <div className="mt-auto">
                    {labsUploaded ? (
-                    <div className="w-full flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 py-2.5 rounded-lg text-sm font-bold border border-emerald-200">
-                      <CheckCircle2 className="w-5 h-5" /> Data uploaded successfully
+                    <div className="flex flex-col gap-2">
+                      <div className="w-full flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 py-2 rounded-lg text-sm font-bold border border-emerald-200">
+                        <CheckCircle2 className="w-5 h-5" /> Data uploaded successfully
+                      </div>
+                      <label className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer">
+                        <Upload className="w-4 h-4" /> Upload New CSV
+                        <input type="file" accept=".csv" className="hidden" onChange={handleCsvUpload} />
+                      </label>
                     </div>
                    ) : (
                     <label className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer">

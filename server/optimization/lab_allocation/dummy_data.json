@@ -49,7 +49,8 @@
       "periods": [
         "Monday_03:30-4:25",
         "Monday_4:30-5:25"
-      ]
+      ],
+      "lab_slot": "O23/DEPT"
     },
     {
       "code": "CSL302",
@@ -62,7 +63,8 @@
       "periods": [
         "Friday_03:30-4:25",
         "Friday_4:30-5:25"
-      ]
+      ],
+      "lab_slot": "U23/DEPT"
     },
     {
       "code": "CSP352",
@@ -73,11 +75,12 @@
       "instructor": "Dr. Dhiman saha",
       "duration": 4,
       "periods": [
-        "Wednesday_09:30-10:25",
         "Wednesday_10:30-11:25",
-        "Friday_09:30-10:25",
-        "Friday_10:30-11:25"
-      ]
+        "Wednesday_11:30-12:25",
+        "Friday_10:30-11:25",
+        "Friday_11:30-12:25"
+      ],
+      "lab_slot": "P23 & T23/DEPT"
     },
     {
       "code": "CSL503",
@@ -88,9 +91,10 @@
       "instructor": "Dr. SK Subidh Ali",
       "duration": 2,
       "periods": [
-        "Friday_09:30-10:25",
-        "Friday_10:30-11:25"
-      ]
+        "Friday_10:30-11:25",
+        "Friday_11:30-12:25"
+      ],
+      "lab_slot": "T23/DEPT"
     },
     {
       "code": "CSL605",
@@ -103,7 +107,8 @@
       "periods": [
         "Monday_03:30-4:25",
         "Monday_4:30-5:25"
-      ]
+      ],
+      "lab_slot": "O23/DEPT"
     },
     {
       "code": "CSL622",
@@ -114,9 +119,10 @@
       "instructor": "Dr. Dhiman Saha",
       "duration": 2,
       "periods": [
-        "Tuesday_09:30-10:25",
-        "Tuesday_10:30-11:25"
-      ]
+        "Tuesday_10:30-11:25",
+        "Tuesday_11:30-12:25"
+      ],
+      "lab_slot": "V23/DEPT"
     },
     {
       "code": "CSP203",
@@ -131,7 +137,8 @@
         "Friday_03:30-4:25",
         "Thursday_02:30-03:25",
         "Thursday_03:30-4:25"
-      ]
+      ],
+      "lab_slot": "U12, S12/DEPT"
     },
     {
       "code": "CSL304",
@@ -144,7 +151,8 @@
       "periods": [
         "Tuesday_03:30-4:25",
         "Tuesday_4:30-5:25"
-      ]
+      ],
+      "lab_slot": "W23/DEPT"
     },
     {
       "code": "CSL202/MAL504",
@@ -157,7 +165,8 @@
       "periods": [
         "Monday_03:30-4:25",
         "Monday_4:30-5:25"
-      ]
+      ],
+      "lab_slot": "O23/DEPT"
     },
     {
       "code": "CSL303/MAL505",
@@ -170,7 +179,8 @@
       "periods": [
         "Wednesday_02:30-03:25",
         "Wednesday_03:30-4:25"
-      ]
+      ],
+      "lab_slot": "Q12/DEPT"
     },
     {
       "code": "CSL100/MAL400",
@@ -196,7 +206,8 @@
         "Friday_02:30-03:25",
         "Friday_03:30-4:25",
         "Friday_4:30-5:25"
-      ]
+      ],
+      "lab_slot": "OWQSU/DEPT"
     },
     {
       "code": "CSL559",
@@ -209,7 +220,8 @@
       "periods": [
         "Friday_03:30-4:25",
         "Friday_4:30-5:25"
-      ]
+      ],
+      "lab_slot": "U23/DEPT"
     }
   ],
   "slots": [],
@@ -228,9 +240,9 @@
       "N": {
         "day": "Monday",
         "periods": [
-          "8:30-9:25",
           "09:30-10:25",
-          "10:30-11:25"
+          "10:30-11:25",
+          "11:30-12:25"
         ]
       },
       "O": {
@@ -244,9 +256,9 @@
       "P": {
         "day": "Wednesday",
         "periods": [
-          "8:30-9:25",
           "09:30-10:25",
-          "10:30-11:25"
+          "10:30-11:25",
+          "11:30-12:25"
         ]
       },
       "Q": {
@@ -260,9 +272,9 @@
       "R": {
         "day": "Thursday",
         "periods": [
-          "8:30-9:25",
           "09:30-10:25",
-          "10:30-11:25"
+          "10:30-11:25",
+          "11:30-12:25"
         ]
       },
       "S": {
@@ -276,9 +288,9 @@
       "T": {
         "day": "Friday",
         "periods": [
-          "8:30-9:25",
           "09:30-10:25",
-          "10:30-11:25"
+          "10:30-11:25",
+          "11:30-12:25"
         ]
       },
       "U": {
@@ -292,9 +304,9 @@
       "V": {
         "day": "Tuesday",
         "periods": [
-          "8:30-9:25",
           "09:30-10:25",
-          "10:30-11:25"
+          "10:30-11:25",
+          "11:30-12:25"
         ]
       },
       "W": {

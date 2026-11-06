@@ -13,6 +13,43 @@ const __dirname = path.dirname(__filename);
 
 const upload = multer({ dest: '/tmp/' });
 
+function mapSlotToPeriods(labSlot, timetableSlots) {
+  if (!labSlot || !timetableSlots) return [];
+  const fullSlotStr = labSlot.split('/')[0].trim();
+  const slotParts = fullSlotStr.split(/&|,/);
+  const periods = [];
+
+  slotParts.forEach(part => {
+    part = part.trim();
+    if (!part) return;
+
+    const letters = part.match(/[A-Z]+/)?.[0] || '';
+    const numbers = part.match(/[0-9]+/)?.[0] || '';
+
+    for (let i = 0; i < letters.length; i++) {
+      const baseLetter = letters[i];
+      const slotInfo = timetableSlots[baseLetter];
+      if (slotInfo && Array.isArray(slotInfo.periods)) {
+        const day = slotInfo.day;
+        const tPeriods = slotInfo.periods;
+
+        if (!numbers) {
+          tPeriods.forEach(t => periods.push(`${day}_${t}`));
+        } else {
+          for (let j = 0; j < numbers.length; j++) {
+            const idx = parseInt(numbers[j], 10) - 1;
+            if (idx >= 0 && idx < tPeriods.length) {
+              periods.push(`${day}_${tPeriods[idx]}`);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  return [...new Set(periods)];
+}
+
 router.post('/parse-pdf', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
@@ -64,9 +101,35 @@ router.get('/data', async (req, res) => {
     const { data: timetable, error: timeErr } = await supabase.from('lab_allocation_timetable').select('*').eq('id', 'singleton').maybeSingle();
     if (timeErr) throw timeErr;
 
+    let timetableData = timetable ? { headers: timetable.headers, slots: timetable.slots } : null;
+
+    // Auto-correct any legacy timetable slots where morning slots were mapped from index 0 instead of index 1
+    if (timetableData && timetableData.slots) {
+      const morningSlots = ['N', 'V', 'P', 'R', 'T'];
+      morningSlots.forEach(slotKey => {
+        if (timetableData.slots[slotKey] && Array.isArray(timetableData.slots[slotKey].periods)) {
+          if (timetableData.slots[slotKey].periods[0] === '8:30-9:25') {
+            timetableData.slots[slotKey].periods = ['09:30-10:25', '10:30-11:25', '11:30-12:25'];
+          }
+        }
+      });
+    }
+
+    // Dynamically recompute course periods if lab_slot exists and timetableData is available
+    let sanitizedCourses = (courses || []).map(c => {
+      let periods = c.periods || [];
+      if (c.lab_slot && timetableData && timetableData.slots) {
+        const computed = mapSlotToPeriods(c.lab_slot, timetableData.slots);
+        if (computed.length > 0) {
+          periods = computed;
+        }
+      }
+      return { ...c, periods };
+    });
+
     res.json({
-      data: { labs: labs || [], courses: courses || [], slots: [] },
-      timetableData: timetable ? { headers: timetable.headers, slots: timetable.slots } : null
+      data: { labs: labs || [], courses: sanitizedCourses, slots: [] },
+      timetableData: timetableData
     });
   } catch (error) {
     console.error("DB read error:", error);
@@ -95,7 +158,8 @@ router.post('/save', async (req, res) => {
         const { error: insErr } = await supabase.from('lab_allocation_courses').insert(courses.map(c => ({
           code: c.code, name: c.name, student_count: parseInt(c.student_count) || 0,
           gpu_required: Boolean(c.gpu_required), academic_year: c.academic_year,
-          instructor: c.instructor, duration: parseInt(c.duration) || 2, periods: c.periods || []
+          instructor: c.instructor, duration: parseInt(c.duration) || 2, periods: c.periods || [],
+          lab_slot: c.lab_slot || null
         })));
         if (insErr) throw insErr;
       }

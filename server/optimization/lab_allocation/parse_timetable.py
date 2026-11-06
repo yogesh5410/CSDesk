@@ -62,10 +62,10 @@ def parse_timetable(file_path):
                             if len(prev_line) <= 5 and prev_line: # like "N O", "N   O"
                                 parts = prev_line.split()
                                 if len(parts) >= 1:
-                                    # First part is morning slot, typically covers first 3 periods
+                                    # First part is morning slot, typically covers morning lab periods (09:30 - 12:25, i.e. periods 1, 2, 3)
                                     slot_mapping[parts[0]] = {
                                         "day": day,
-                                        "periods": time_matches[0:3]
+                                        "periods": time_matches[1:4]
                                     }
                                 if len(parts) >= 2:
                                     # Second part is afternoon slot, typically covers last 3 periods (periods 5,6,7 assuming 0-indexed and 8 total periods)
