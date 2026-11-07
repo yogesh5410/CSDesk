@@ -12,7 +12,7 @@ import { replaceTable as replaceTableTx } from "../lib/replaceTable.js";
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OPT_DIR = path.join(__dirname, "..", "optimization");
-const PYTHON = path.join(OPT_DIR, "venv", "bin", "python");
+const PYTHON = process.env.PYTHON_PATH || (fs.existsSync(path.join(OPT_DIR, "venv", "bin", "python")) ? path.join(OPT_DIR, "venv", "bin", "python") : "python3");
 
 const upload = multer({
   dest: "/tmp/csdesk-uploads/",

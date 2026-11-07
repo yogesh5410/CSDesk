@@ -13,6 +13,13 @@ const __dirname = path.dirname(__filename);
 
 const upload = multer({ dest: '/tmp/' });
 
+const getPythonExecutable = () => {
+  if (process.env.PYTHON_PATH) return process.env.PYTHON_PATH;
+  const venvPy = path.join(__dirname, '..', 'optimization', 'venv', 'bin', 'python');
+  if (fs.existsSync(venvPy)) return venvPy;
+  return 'python3';
+};
+
 function mapSlotToPeriods(labSlot, timetableSlots) {
   if (!labSlot || !timetableSlots) return [];
   const fullSlotStr = labSlot.split('/')[0].trim();
@@ -55,7 +62,7 @@ router.post('/parse-pdf', upload.single('file'), (req, res) => {
 
   const filePath = req.file.path;
   const optimizationDir = path.join(__dirname, '..', 'optimization', 'lab_allocation');
-  const pythonExecutable = path.join(__dirname, '..', 'optimization', 'venv', 'bin', 'python');
+  const pythonExecutable = getPythonExecutable();
   const parserScript = path.join(optimizationDir, 'parser.py');
 
   exec(`${pythonExecutable} ${parserScript} ${filePath}`, { cwd: optimizationDir }, (error, stdout, stderr) => {
@@ -76,7 +83,7 @@ router.post('/parse-timetable-pdf', upload.single('file'), (req, res) => {
 
   const filePath = req.file.path;
   const optimizationDir = path.join(__dirname, '..', 'optimization', 'lab_allocation');
-  const pythonExecutable = path.join(__dirname, '..', 'optimization', 'venv', 'bin', 'python');
+  const pythonExecutable = getPythonExecutable();
   const parserScript = path.join(optimizationDir, 'parse_timetable.py');
 
   exec(`${pythonExecutable} ${parserScript} ${filePath}`, { cwd: optimizationDir }, (error, stdout, stderr) => {
@@ -181,7 +188,7 @@ router.post('/save', async (req, res) => {
 
 router.post('/allocate', async (req, res) => {
   const optimizationDir = path.join(__dirname, '..', 'optimization', 'lab_allocation');
-  const pythonExecutable = path.join(__dirname, '..', 'optimization', 'venv', 'bin', 'python');
+  const pythonExecutable = getPythonExecutable();
   const solverScript = path.join(optimizationDir, 'solver.py');
   const dummyDataPath = path.join(optimizationDir, 'dummy_data.json');
 

@@ -18,7 +18,14 @@ const ALLOWED_ORIGINS = (process.env.CLIENT_ORIGIN || "")
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+  const isAllowed = origin && (
+    ALLOWED_ORIGINS.includes("*") ||
+    ALLOWED_ORIGINS.includes(origin) ||
+    origin.endsWith(".vercel.app") ||
+    /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(origin)
+  );
+
+  if (isAllowed) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Simulate-Role, X-Simulate-User");

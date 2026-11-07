@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { apiUrl } from "../../lib/api";
 import { 
   FlaskConical, Cpu, Users, Clock, Calendar, CheckCircle2, 
   AlertCircle, RefreshCw, LayoutGrid, Database, Play, TableProperties,
@@ -61,7 +62,7 @@ const LabAllocation = () => {
 
   // Fetch initial data
   useEffect(() => {
-    fetch('/api/optimization/data')
+    fetch(apiUrl('/api/optimization/data'))
       .then(res => res.json())
       .then(d => {
         if (d.data && (d.data.labs.length > 0 || d.data.courses.length > 0)) setData(d.data);
@@ -75,7 +76,7 @@ const LabAllocation = () => {
     // Only save if there's actually something to save, and skip initial empty renders
     if (data.labs.length === 0 && data.courses.length === 0 && !timetableData) return;
     
-    fetch('/api/optimization/save', {
+    fetch(apiUrl('/api/optimization/save'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ labs: data.labs, courses: data.courses, timetableData })
@@ -88,7 +89,7 @@ const LabAllocation = () => {
     setError(null);
     setActiveTab('results');
     try {
-      const response = await fetch('/api/optimization/allocate', {
+      const response = await fetch(apiUrl('/api/optimization/allocate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...data, timetableData })
@@ -147,7 +148,7 @@ const LabAllocation = () => {
     formData.append('file', file);
 
     try {
-      const response = await fetch('/api/optimization/parse-pdf', {
+      const response = await fetch(apiUrl('/api/optimization/parse-pdf'), {
         method: 'POST',
         body: formData
       });
@@ -182,7 +183,7 @@ const LabAllocation = () => {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const response = await fetch('/api/optimization/parse-timetable-pdf', { method: 'POST', body: formData });
+      const response = await fetch(apiUrl('/api/optimization/parse-timetable-pdf'), { method: 'POST', body: formData });
       const result = await response.json();
       if (response.ok && result.slots) {
         setTimetableData(result);
