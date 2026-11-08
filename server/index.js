@@ -1,9 +1,12 @@
 import express from "express";
+import http from "http";
 import dotenv from "dotenv";
 import { testSupabaseConnection } from "./supabaseClient.js";
 import { requireAuth } from "./middleware/requireAuth.js";
 import optimizationRoutes from "./routes/optimizationRoutes.js";
 import taRoutes from "./routes/taRoutes.js";
+import labAgentRoutes from "./routes/labAgentRoutes.js";
+import { labAgentHub } from "./services/labAgentHub.js";
 
 dotenv.config();
 
@@ -54,9 +57,13 @@ app.get("/api/me", requireAuth, (req, res) => {
 
 app.use("/api/optimization", optimizationRoutes);
 app.use("/api/ta", taRoutes);
+app.use("/api/lab-automation", labAgentRoutes);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, "0.0.0.0", async () => {
+const server = http.createServer(app);
+labAgentHub.init(server);
+
+server.listen(PORT, "0.0.0.0", async () => {
   console.log(`Server running on http://localhost:${PORT}`);
   try {
     await testSupabaseConnection();

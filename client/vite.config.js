@@ -8,7 +8,13 @@ const API_TARGET = process.env.VITE_DEV_API_TARGET || 'http://localhost:5000'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
+    host: true,
     proxy: {
+      '/ws': {
+        target: API_TARGET,
+        ws: true,
+        changeOrigin: true,
+      },
       '/api': {
         target: API_TARGET,
         changeOrigin: true,

@@ -7,6 +7,7 @@ import Overview from "./pages/dashboard/Overview";
 import ComingSoon from "./pages/dashboard/ComingSoon";
 import LabAllocation from "./pages/dashboard/LabAllocation";
 import TAAllocation from "./pages/dashboard/TAAllocation";
+import LabAutomation from "./pages/dashboard/LabAutomation";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { navItems } from "./config/navigation";
 
@@ -27,11 +28,12 @@ function App() {
         <Route index element={<Overview />} />
         <Route path="lab-allocation" element={<LabAllocation />} />
         <Route path="ta-allocation" element={<TAAllocation />} />
+        <Route path="lab-software" element={<LabAutomation />} />
         {navItems
           .filter(
             (item) =>
               !item.end &&
-              !["/dashboard/lab-allocation", "/dashboard/ta-allocation"].includes(item.path),
+              !["/dashboard/lab-allocation", "/dashboard/ta-allocation", "/dashboard/lab-software"].includes(item.path),
           )
           .map(({ path, label }) => (
             <Route
