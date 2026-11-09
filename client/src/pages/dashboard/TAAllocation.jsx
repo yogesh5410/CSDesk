@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   UsersRound, Database, Table2, Cpu, ClipboardList, RefreshCw, BookOpen, UserCheck, CheckSquare,
+  GitPullRequest,
 } from "lucide-react";
 import { apiGet } from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
-import { PDF_UPLOADS, CSV_UPLOADS } from "../../config/taTables";
+import { DATA_SOURCES } from "../../config/taTables";
 import UploadCard from "../../components/ta/UploadCard";
 import TablePreview from "../../components/ta/TablePreview";
 import RunPanel from "../../components/ta/RunPanel";
@@ -12,6 +13,7 @@ import ResultsPanel from "../../components/ta/ResultsPanel";
 import AlgorithmNotes from "../../components/ta/AlgorithmNotes";
 import RoleAllocationView from "../../components/ta/RoleAllocationView";
 import CollectRequirementsTab from "../../components/ta/CollectRequirementsTab";
+import RequestsTab from "../../components/ta/RequestsTab";
 
 const ADMIN_TABS = [
   { key: "data", label: "Data Sources", icon: Database },
@@ -19,6 +21,7 @@ const ADMIN_TABS = [
   { key: "preview", label: "Preview", icon: Table2 },
   { key: "run", label: "Run", icon: Cpu },
   { key: "results", label: "Results", icon: ClipboardList },
+  { key: "requests", label: "Requests", icon: GitPullRequest },
   { key: "algorithm", label: "Algorithm", icon: BookOpen },
 ];
 
@@ -32,6 +35,7 @@ export default function TAAllocation() {
   const [roleViewData, setRoleViewData] = useState(null);
   const [requirementsStatus, setRequirementsStatus] = useState(null);
   const [facultyReqData, setFacultyReqData] = useState(null);
+  const [pendingReqCount, setPendingReqCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -48,10 +52,14 @@ export default function TAAllocation() {
     setLoading(true);
     try {
       if (isAdmin) {
-        const { tables } = await apiGet("/api/ta/tables");
+        const [{ tables }, reqStatus, reqData] = await Promise.all([
+          apiGet("/api/ta/tables"),
+          apiGet("/api/ta/requirements/status"),
+          apiGet("/api/ta/requests").catch(() => ({ pendingCount: 0 })),
+        ]);
         setTables(tables);
-        const reqStatus = await apiGet("/api/ta/requirements/status");
         setRequirementsStatus(reqStatus);
+        setPendingReqCount(reqData.pendingCount || 0);
       }
       const [roleData, facReq] = await Promise.all([
         apiGet("/api/ta/role-view"),
@@ -132,6 +140,11 @@ export default function TAAllocation() {
                                 : "text-slate-500 hover:text-slate-700"}`}
                 >
                   <Icon size={16} /> {label}
+                  {key === "requests" && pendingReqCount > 0 && (
+                    <span className="rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.2 text-[10px] font-bold">
+                      {pendingReqCount}
+                    </span>
+                  )}
                 </button>
               ))}
               <button
@@ -161,30 +174,28 @@ export default function TAAllocation() {
       )}
 
       {isAdmin && tab === "data" && (
-        <div className="space-y-6">
-          <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              PDF sources
-            </h2>
-            <div className="grid gap-4 lg:grid-cols-2">
-              {PDF_UPLOADS.map((spec) => (
-                <UploadCard key={spec.key} spec={spec} kind="pdf"
-                            rowCount={count(spec.table)} onUploaded={refresh} />
-              ))}
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                Input Data Sources
+              </h2>
+              <p className="text-xs text-slate-500">
+                Manage all 4 core input sources for TA allocation. Uploading any source replaces its whole table.
+              </p>
             </div>
-          </section>
+          </div>
 
-          <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              CSV sources
-            </h2>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {CSV_UPLOADS.map((spec) => (
-                <UploadCard key={spec.key} spec={spec} kind="csv"
-                            rowCount={count(spec.table)} onUploaded={refresh} />
-              ))}
-            </div>
-          </section>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-stretch">
+            {DATA_SOURCES.map((spec) => (
+              <UploadCard
+                key={spec.key}
+                spec={spec}
+                rowCount={count(spec.table)}
+                onUploaded={refresh}
+              />
+            ))}
+          </div>
         </div>
       )}
 
@@ -195,7 +206,9 @@ export default function TAAllocation() {
         />
       )}
 
-      {isAdmin && tab === "preview" && tables && <TablePreview tables={tables} />}
+      {isAdmin && tab === "preview" && tables && (
+        <TablePreview tables={tables} onRefresh={refresh} />
+      )}
 
       {isAdmin && tab === "run" && (
         <RunPanel
@@ -212,6 +225,10 @@ export default function TAAllocation() {
             refresh();
           }}
         />
+      )}
+
+      {isAdmin && tab === "requests" && (
+        <RequestsTab onRefresh={refresh} />
       )}
 
       {isAdmin && tab === "algorithm" && <AlgorithmNotes />}

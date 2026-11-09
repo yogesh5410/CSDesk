@@ -4,38 +4,61 @@
  * server/routes/taRoutes.js -- the upload is rejected if a column is missing.
  */
 
-export const PDF_UPLOADS = [
+/**
+ * The four core uploadable data sources for TA Allocation.
+ * Courses supports both PDF extraction and direct CSV upload.
+ */
+export const DATA_SOURCES = [
   {
     key: "courses",
     title: "List of Courses",
-    endpoint: "/api/ta/upload/courses-pdf",
-    accept: "application/pdf",
     table: "courses",
+    pdfEndpoint: "/api/ta/upload/courses-pdf",
+    csvEndpoint: "/api/ta/upload/csv/courses",
+    acceptPdf: ".pdf,application/pdf",
+    acceptCsv: ".csv,text/csv",
+    icon: "book",
     blurb:
-      "The department course list PDF. Only CSE-owned courses are stored: the " +
-      "discipline must name CSE/CS&DS and the code must be in the CS*/DS* series.",
+      "Department course catalog with slot allocations and instructors. Only CSE-owned courses are stored (CS*/DS* codes). Supports both PDF parsing and direct CSV upload.",
     extracts: ["course code", "course name", "discipline", "program",
                "lecture slot", "tutorial slot", "lab slot", "instructors"],
+    columns: ["course_code", "course_name", "discipline", "program",
+              "lecture_slot", "tutorial_slot", "lab_slot", "instructors"],
+    required: ["course_code", "course_name"],
+    sample: [
+      ["CSL301", "Database Systems", "CSE", "BTech", "E", "", "OWQSU", "Dr. Souradyuti Paul"],
+      ["CSL502", "Advanced Algorithms", "CSE", "MTech", "C", "", "", "Dr. Subhajit Sidhanta"],
+      ["CSL606", "Machine Learning", "CSE", "MTech", "D", "", "P23", "Dr. Gagan Raj Gupta"],
+    ],
+    notes: [
+      "Upload either the official Institute Course List PDF or a CSV file.",
+      "Slots must match the common timetable slot grid (e.g. A, C, OWQSU, P23).",
+      "Multiple instructors can be listed separated by commas.",
+    ],
   },
   {
     key: "timetable",
     title: "Common Timetable",
-    endpoint: "/api/ta/upload/timetable-pdf",
-    accept: "application/pdf",
     table: "timetable",
+    pdfEndpoint: "/api/ta/upload/timetable-pdf",
+    acceptPdf: ".pdf,application/pdf",
+    icon: "calendar",
     blurb:
-      "The institute slot grid. Parsed into 5 days x 8 periods, recording which " +
-      "theory slot (A-M) and which 180-minute lab slot (N-W) occupies each cell.",
+      "The institute slot grid. Parsed into 5 days x 8 periods, recording which theory slot (A-M) and which 180-minute lab slot (N-W) occupies each cell.",
     extracts: ["day", "start time", "end time", "theory slot", "lab slot"],
+    notes: [
+      "Upload the official Common Time Table PDF containing the 5-day slot matrix.",
+    ],
   },
-];
-
-export const CSV_UPLOADS = [
   {
     key: "ta_details",
     title: "TA Details",
     table: "ta_details",
-    endpoint: "/api/ta/upload/csv/ta_details",
+    csvEndpoint: "/api/ta/upload/csv/ta_details",
+    acceptCsv: ".csv,text/csv",
+    icon: "users",
+    blurb:
+      "Roster of all eligible teaching assistants. PhD scholars have no coursework constraints, while M.Tech TAs have class schedules to avoid.",
     columns: ["roll_no", "name", "program", "thesis_supervisor", "email"],
     required: ["roll_no", "name"],
     sample: [
@@ -51,7 +74,11 @@ export const CSV_UPLOADS = [
     key: "course_registration",
     title: "Course Registration",
     table: "course_registration",
-    endpoint: "/api/ta/upload/csv/course_registration",
+    csvEndpoint: "/api/ta/upload/csv/course_registration",
+    acceptCsv: ".csv,text/csv",
+    icon: "registration",
+    blurb:
+      "Course enrollment records for M.Tech students. Used by the solver to determine student class hours and avoid scheduling conflicts.",
     columns: ["student_roll_no", "course_code"],
     required: ["student_roll_no", "course_code"],
     sample: [
@@ -64,6 +91,16 @@ export const CSV_UPLOADS = [
       "Only M.Tech registrations matter: they are what make a TA unavailable in a slot.",
     ],
   },
+];
+
+export const PDF_UPLOADS = [
+  DATA_SOURCES[0],
+  DATA_SOURCES[1],
+];
+
+export const CSV_UPLOADS = [
+  DATA_SOURCES[2],
+  DATA_SOURCES[3],
 ];
 
 export const TA_REQUIREMENTS_CSV_SPEC = {
@@ -94,7 +131,8 @@ export const PREVIEW_TABLES = [
 
 /** Build the template text shown next to an upload (and offered as a file). */
 export function templateCsv(spec) {
+  if (!spec?.columns?.length) return "";
   const esc = (v) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   return [spec.columns.join(","),
-          ...spec.sample.map((r) => r.map(esc).join(","))].join("\n");
+          ...(spec.sample || []).map((r) => r.map(esc).join(","))].join("\n");
 }

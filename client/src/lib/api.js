@@ -53,6 +53,13 @@ export async function apiPatch(path, body) {
   }));
 }
 
+export async function apiDelete(path) {
+  return unwrap(await fetch(apiUrl(path), {
+    method: "DELETE",
+    headers: await authHeaders(),
+  }));
+}
+
 export async function apiUpload(path, file) {
   const form = new FormData();
   form.append("file", file);

@@ -93,15 +93,19 @@ function splitPeople(raw) {
 export const TABLES = {
   courses: {
     label: "Courses",
-    source: "List of courses (PDF)",
+    source: "List of courses (PDF or CSV)",
     columns: ["course_code", "course_name", "discipline", "program",
               "lecture_slot", "tutorial_slot", "lab_slot", "instructors"],
+    required: ["course_code", "course_name"],
+    primaryKey: "course_code",
     orderBy: "course_code",
   },
   timetable: {
     label: "Common Timetable",
     source: "Common Time Table (PDF)",
     columns: ["day", "start_time", "end_time", "theory_slot", "lab_slot"],
+    required: ["day", "start_time", "end_time"],
+    primaryKey: "id",
     orderBy: "id",
   },
   ta_details: {
@@ -109,6 +113,7 @@ export const TABLES = {
     source: "CSV upload",
     columns: ["roll_no", "name", "program", "thesis_supervisor", "email"],
     required: ["roll_no", "name"],
+    primaryKey: "roll_no",
     orderBy: "roll_no",
   },
   course_registration: {
@@ -116,6 +121,7 @@ export const TABLES = {
     source: "CSV upload",
     columns: ["student_roll_no", "course_code"],
     required: ["student_roll_no", "course_code"],
+    primaryKey: "id",
     orderBy: "id",
   },
   ta_requirements: {
@@ -124,12 +130,14 @@ export const TABLES = {
     columns: ["course_code", "tas_required", "preferred_ta_rolls"],
     required: ["course_code", "tas_required"],
     numeric: ["tas_required"],
+    primaryKey: "course_code",
     orderBy: "course_code",
   },
   users: {
     label: "Users",
     source: "Seeded",
     columns: ["email", "name", "role"],
+    primaryKey: "email",
     orderBy: "email",
     readOnly: true,
   },
@@ -224,14 +232,24 @@ router.post("/upload/csv/:table", requireAdmin, upload.single("file"), async (re
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
   try {
-    const objects = parseCsvObjects(fs.readFileSync(req.file.path, "utf8"));
-    if (!objects.length) throw new Error("The CSV has no data rows.");
+    const rawObjects = parseCsvObjects(fs.readFileSync(req.file.path, "utf8"));
+    if (!rawObjects.length) throw new Error("The CSV has no data rows.");
+
+    // Normalize keys to snake_case so "Course Code" or "Roll No" works smoothly
+    const objects = rawObjects.map((obj) => {
+      const normalized = {};
+      for (const [k, v] of Object.entries(obj)) {
+        normalized[k.trim().toLowerCase().replace(/[\s-]+/g, "_")] = v;
+      }
+      return normalized;
+    });
 
     const header = Object.keys(objects[0]);
-    const missing = spec.columns.filter((c) => !header.includes(c));
+    const requiredCols = spec.required || spec.columns;
+    const missing = requiredCols.filter((c) => !header.includes(c));
     if (missing.length) {
       throw new Error(
-        `Missing column(s): ${missing.join(", ")}. Expected header: ${spec.columns.join(",")}`);
+        `Missing required column(s): ${missing.join(", ")}. Header must include: ${requiredCols.join(", ")}`);
     }
 
     const rows = [], problems = [];
@@ -295,8 +313,10 @@ router.get("/table/:name", async (req, res) => {
   const offset = Number(req.query.offset) || 0;
   const search = (req.query.q || "").trim();
 
+  const fetchCols = Array.from(new Set([spec.primaryKey, ...spec.columns])).filter(Boolean);
+
   let q = supabase.from(req.params.name)
-    .select(spec.columns.join(","), { count: "exact" })
+    .select(fetchCols.join(","), { count: "exact" })
     .order(spec.orderBy, { ascending: true })
     .range(offset, offset + limit - 1);
 
@@ -306,7 +326,160 @@ router.get("/table/:name", async (req, res) => {
   }
   const { data, count, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ columns: spec.columns, rows: data, total: count ?? 0, limit, offset });
+  res.json({
+    columns: spec.columns,
+    primaryKey: spec.primaryKey,
+    required: spec.required || [],
+    numeric: spec.numeric || [],
+    readOnly: !!spec.readOnly,
+    rows: data,
+    total: count ?? 0,
+    limit,
+    offset,
+  });
+});
+
+function validateAndNormalizeRow(name, spec, input, isPatch = false) {
+  if (!input || typeof input !== "object") {
+    throw new Error("Invalid request body: expected an object.");
+  }
+
+  const out = {};
+  const allowedCols = spec.columns;
+
+  // For POST (not patch), ensure all required columns are present and non-empty
+  if (!isPatch) {
+    for (const c of spec.required || []) {
+      if (input[c] === undefined || input[c] === null || String(input[c]).trim() === "") {
+        throw new Error(`Field '${c.replace(/_/g, " ")}' is required and cannot be empty.`);
+      }
+    }
+  }
+
+  for (const [k, v] of Object.entries(input)) {
+    // Only accept columns that belong to the table or its primary key
+    if (!allowedCols.includes(k) && k !== spec.primaryKey) {
+      continue;
+    }
+
+    const strVal = v === null || v === undefined ? "" : String(v).trim();
+
+    // Required check if present in patch
+    if (spec.required?.includes(k) && !strVal) {
+      throw new Error(`Field '${k.replace(/_/g, " ")}' is required and cannot be empty.`);
+    }
+
+    // Specific field validations
+    if (k === "course_code" || k === "student_roll_no" || k === "roll_no") {
+      if (strVal) {
+        if (!/^[A-Za-z0-9_-]+$/.test(strVal)) {
+          throw new Error(`'${k.replace(/_/g, " ")}' must be alphanumeric (e.g. CSL301, M25CS002).`);
+        }
+        out[k] = strVal.toUpperCase();
+      } else {
+        out[k] = "";
+      }
+    } else if (k === "tas_required") {
+      const num = Number(v);
+      if (!Number.isInteger(num) || num < 1) {
+        throw new Error("'tas_required' must be a positive whole integer (at least 1).");
+      }
+      out[k] = num;
+    } else if (k === "day") {
+      const validDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+      const match = validDays.find((d) => d.toLowerCase() === strVal.toLowerCase());
+      if (!match) {
+        throw new Error(`'day' must be one of: ${validDays.join(", ")}`);
+      }
+      out[k] = match;
+    } else if (k === "start_time" || k === "end_time") {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(strVal)) {
+        throw new Error(`'${k}' must be in 24-hour HH:MM format (e.g. 09:30, 14:00).`);
+      }
+      out[k] = strVal;
+    } else if (k === "email") {
+      if (strVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(strVal)) {
+        throw new Error(`Invalid email format: '${strVal}'`);
+      }
+      out[k] = strVal.toLowerCase();
+    } else {
+      out[k] = strVal;
+    }
+  }
+
+  // Cross-field validation for timetable
+  if (out.start_time && out.end_time) {
+    if (out.start_time >= out.end_time) {
+      throw new Error(`'start_time' (${out.start_time}) must be earlier than 'end_time' (${out.end_time}).`);
+    }
+  }
+
+  return out;
+}
+
+router.post("/table/:name", requireAdmin, async (req, res) => {
+  const name = req.params.name;
+  const spec = TABLES[name];
+  if (!spec || spec.readOnly) return res.status(400).json({ error: `Table '${name}' is not editable.` });
+
+  try {
+    const rowData = validateAndNormalizeRow(name, spec, req.body, false);
+    const { data, error } = await supabase.from(name).insert([rowData]).select();
+    if (error) throw new Error(error.message);
+    res.status(201).json({
+      success: true,
+      row: data?.[0] || rowData,
+      message: `Row added successfully to ${spec.label}.`,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch("/table/:name/:id", requireAdmin, async (req, res) => {
+  const name = req.params.name;
+  const spec = TABLES[name];
+  if (!spec || spec.readOnly) return res.status(400).json({ error: `Table '${name}' is not editable.` });
+  const id = decodeURIComponent(req.params.id);
+
+  try {
+    const rowData = validateAndNormalizeRow(name, spec, req.body, true);
+    if (Object.keys(rowData).length === 0) {
+      return res.status(400).json({ error: "No fields provided to update." });
+    }
+    const pkCol = spec.primaryKey || spec.orderBy;
+    const { data, error } = await supabase.from(name).update(rowData).eq(pkCol, id).select();
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: `Row with ${pkCol}='${id}' not found.` });
+    }
+    res.json({
+      success: true,
+      row: data[0],
+      message: `Row updated successfully.`,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete("/table/:name/:id", requireAdmin, async (req, res) => {
+  const name = req.params.name;
+  const spec = TABLES[name];
+  if (!spec || spec.readOnly) return res.status(400).json({ error: `Table '${name}' is not editable.` });
+  const id = decodeURIComponent(req.params.id);
+
+  try {
+    const pkCol = spec.primaryKey || spec.orderBy;
+    const { error } = await supabase.from(name).delete().eq(pkCol, id);
+    if (error) throw new Error(error.message);
+    res.json({
+      success: true,
+      message: `Row deleted successfully from ${spec.label}.`,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 
@@ -696,11 +869,19 @@ router.get("/role-view", async (req, res) => {
 
     // Group allocations by course_code
     const courseAllocations = {};
+    const taAssignmentMap = {};
     for (const alloc of allocRes.data || []) {
       if (!courseAllocations[alloc.course_code]) {
         courseAllocations[alloc.course_code] = [];
       }
       const fullTa = tasByRoll[alloc.ta_roll_no] || {};
+      const course = courses.find((c) => c.course_code === alloc.course_code);
+      taAssignmentMap[alloc.ta_roll_no] = {
+        course_code: alloc.course_code,
+        course_name: course?.course_name || alloc.course_code,
+        instructors: course?.instructors || "",
+      };
+
       courseAllocations[alloc.course_code].push({
         roll_no: alloc.ta_roll_no,
         name: alloc.ta_name || fullTa.name || "",
@@ -711,6 +892,15 @@ router.get("/role-view", async (req, res) => {
         is_supervisor: alloc.is_supervisor,
       });
     }
+
+    const allTAsList = (taRes.data || []).map((t) => ({
+      roll_no: t.roll_no,
+      name: t.name,
+      program: t.program || "",
+      email: t.email || "",
+      thesis_supervisor: t.thesis_supervisor || "",
+      assigned_to: taAssignmentMap[t.roll_no] || null,
+    }));
 
     // 3. Filter and project based on role
     if (role === "faculty") {
@@ -740,12 +930,22 @@ router.get("/role-view", async (req, res) => {
         }
       }
 
+      // Fetch recent change requests submitted by this faculty member
+      const { data: facultyRequests } = await supabase
+        .from("ta_change_requests")
+        .select("*")
+        .eq("faculty_email", userEmail)
+        .order("created_at", { ascending: false });
+
       return res.json({
         role: "faculty",
+        isAdmin: user?.role === "admin",
         isPublished: activeRun.is_published,
         runId: activeRun.id,
         user: { name: userName, email: userEmail },
         courses: myCourses,
+        allTAs: allTAsList,
+        change_requests: facultyRequests || [],
       });
     }
 
@@ -778,6 +978,7 @@ router.get("/role-view", async (req, res) => {
 
       return res.json({
         role: "ta",
+        isAdmin: user?.role === "admin",
         isPublished: activeRun.is_published,
         runId: activeRun.id,
         user: { name: userName, email: userEmail, roll_no: myRoll },
@@ -792,6 +993,8 @@ router.get("/role-view", async (req, res) => {
         roll_no: t.roll_no,
         name: t.name,
         email: t.email,
+        program: t.program,
+        thesis_supervisor: t.thesis_supervisor,
       }));
 
       return {
@@ -804,9 +1007,11 @@ router.get("/role-view", async (req, res) => {
 
     return res.json({
       role: "student",
+      isAdmin: user?.role === "admin",
       isPublished: activeRun.is_published,
       runId: activeRun.id,
       courses: publicCourseList,
+      allTAs: allTAsList,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -841,6 +1046,376 @@ router.get("/runs/:id/export.csv", async (req, res) => {
   res.setHeader("Content-Disposition",
                 `attachment; filename="ta-allocation-run-${req.params.id}.csv"`);
   res.send(toCsv(EXPORT_COLUMNS, enriched));
+});
+
+/* ------------------------------------------------------------------ *
+ * Faculty Change Requests & Admin Review (Requirements 2, 3, 4, 5, 6)
+ * ------------------------------------------------------------------ */
+
+// GET /api/ta/requests
+// Admin gets all requests; Faculty gets only their own requests.
+router.get("/requests", async (req, res) => {
+  const user = req.user;
+  const isAdmin = user?.role === "admin";
+  const userEmail = (user?.email || "").toLowerCase().trim();
+
+  try {
+    let q = supabase.from("ta_change_requests").select("*").order("created_at", { ascending: false });
+    if (!isAdmin) {
+      q = q.eq("faculty_email", userEmail);
+    }
+
+    const { data: activeRuns } = await supabase
+      .from("allocation_runs")
+      .select("id, is_published")
+      .order("id", { ascending: false })
+      .limit(1);
+
+    const activeRun = activeRuns?.[0] || null;
+
+    let allocQuery = supabase.from("allocations").select("run_id, course_code, ta_roll_no");
+    if (activeRun) {
+      allocQuery = allocQuery.eq("run_id", activeRun.id);
+    }
+
+    const [{ data: requests, error }, { data: courses }, { data: allocs }] = await Promise.all([
+      q,
+      supabase.from("courses").select("course_code, course_name, instructors"),
+      allocQuery,
+    ]);
+
+    if (error) throw new Error(error.message);
+
+    const coursesMap = Object.fromEntries((courses || []).map((c) => [c.course_code, c]));
+
+    // Find current active allocations for each TA in the latest active run
+    const currentAllocMap = {};
+    if (activeRun) {
+      for (const a of allocs || []) {
+        const c = coursesMap[a.course_code];
+        const normRoll = (a.ta_roll_no || "").trim().toUpperCase();
+        currentAllocMap[normRoll] = {
+          course_code: a.course_code,
+          course_name: c?.course_name || a.course_code,
+          instructors: c?.instructors || "",
+        };
+      }
+    }
+
+    const enriched = (requests || []).map((r) => {
+      const normRoll = (r.ta_roll_no || "").trim().toUpperCase();
+      return {
+        ...r,
+        course_name: coursesMap[r.course_code]?.course_name || r.course_code,
+        course_instructors: coursesMap[r.course_code]?.instructors || "",
+        current_allocation: currentAllocMap[normRoll] || null,
+      };
+    });
+
+    const pendingCount = enriched.filter((r) => r.status === "pending").length;
+
+    res.json({
+      requests: enriched,
+      pendingCount,
+      activeRunId: activeRun?.id || null,
+      isPublished: activeRun?.is_published || false,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/ta/requests
+// Faculty submits a change request to ADD or DELETE a TA
+router.post("/requests", async (req, res) => {
+  const user = req.user;
+  const userEmail = (user?.email || "").toLowerCase().trim();
+  const userName = user?.name || userEmail;
+  const { course_code, request_type, ta_roll_no, reason } = req.body;
+
+  if (!course_code || !request_type || !ta_roll_no) {
+    return res.status(400).json({ error: "Missing required fields: course_code, request_type, ta_roll_no." });
+  }
+  if (!["ADD", "DELETE"].includes(request_type)) {
+    return res.status(400).json({ error: "request_type must be either 'ADD' or 'DELETE'." });
+  }
+
+  try {
+    const { data: runs } = await supabase
+      .from("allocation_runs")
+      .select("id, is_published")
+      .order("id", { ascending: false })
+      .limit(1);
+
+    const activeRun = runs?.[0];
+    if (!activeRun || !activeRun.is_published) {
+      return res.status(400).json({ error: "TA allocations have not been published yet. Change requests can only be made after publication." });
+    }
+
+    const { data: taRecord } = await supabase
+      .from("ta_details")
+      .select("roll_no, name, program, email")
+      .eq("roll_no", ta_roll_no.trim())
+      .maybeSingle();
+
+    const cleanRoll = taRecord?.roll_no || ta_roll_no.trim().toUpperCase();
+    const taName = taRecord?.name || cleanRoll;
+    const taProgram = taRecord?.program || "";
+
+    if (request_type === "DELETE") {
+      const { data: existingAlloc } = await supabase
+        .from("allocations")
+        .select("id")
+        .eq("run_id", activeRun.id)
+        .eq("course_code", course_code.trim())
+        .eq("ta_roll_no", cleanRoll)
+        .maybeSingle();
+
+      if (!existingAlloc) {
+        return res.status(400).json({ error: `TA ${cleanRoll} is not currently assigned to course ${course_code}.` });
+      }
+    }
+
+    const { data: inserted, error: insertError } = await supabase
+      .from("ta_change_requests")
+      .insert([{
+        run_id: activeRun.id,
+        course_code: course_code.trim(),
+        faculty_email: userEmail,
+        faculty_name: userName,
+        request_type,
+        ta_roll_no: cleanRoll,
+        ta_name: taName,
+        ta_program: taProgram,
+        reason: (reason || "").trim(),
+        status: "pending",
+      }])
+      .select()
+      .single();
+
+    if (insertError) throw new Error(insertError.message);
+
+    res.status(201).json({
+      success: true,
+      request: inserted,
+      message: `Request to ${request_type} TA ${cleanRoll} submitted successfully for admin review.`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/ta/requests/:id/review
+// Admin approves or rejects a change request
+router.post("/requests/:id/review", requireAdmin, async (req, res) => {
+  const { action, admin_remark } = req.body;
+  const requestId = req.params.id;
+  const reviewerEmail = (req.user?.email || "admin").toLowerCase().trim();
+
+  if (!["approve", "reject"].includes(action)) {
+    return res.status(400).json({ error: "Action must be 'approve' or 'reject'." });
+  }
+
+  try {
+    const { data: request, error: reqError } = await supabase
+      .from("ta_change_requests")
+      .select("*")
+      .eq("id", requestId)
+      .maybeSingle();
+
+    if (reqError || !request) {
+      return res.status(404).json({ error: "Change request not found." });
+    }
+
+    if (request.status !== "pending") {
+      return res.status(400).json({ error: `Request has already been ${request.status}.` });
+    }
+
+    if (action === "reject") {
+      const { data: updated, error: updateError } = await supabase
+        .from("ta_change_requests")
+        .update({
+          status: "rejected",
+          admin_remark: (admin_remark || "").trim(),
+          reviewed_by: reviewerEmail,
+          reviewed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", requestId)
+        .select()
+        .single();
+
+      if (updateError) throw new Error(updateError.message);
+
+      return res.json({
+        success: true,
+        request: updated,
+        message: "Change request rejected.",
+      });
+    }
+
+    const runId = request.run_id;
+    if (!runId) {
+      return res.status(400).json({ error: "No associated allocation run for this request." });
+    }
+
+    if (request.request_type === "ADD") {
+      // Remove TA from previous course in this run (if assigned)
+      await supabase
+        .from("allocations")
+        .delete()
+        .eq("run_id", runId)
+        .eq("ta_roll_no", request.ta_roll_no);
+
+      // Insert into target course
+      const { error: insertError } = await supabase
+        .from("allocations")
+        .insert([{
+          run_id: runId,
+          course_code: request.course_code,
+          ta_roll_no: request.ta_roll_no,
+          ta_name: request.ta_name,
+          ta_program: request.ta_program,
+          is_preferred: false,
+          is_supervisor: false,
+        }]);
+
+      if (insertError) throw new Error(`Failed to allocate TA: ${insertError.message}`);
+    } else if (request.request_type === "DELETE") {
+      const { error: deleteError } = await supabase
+        .from("allocations")
+        .delete()
+        .eq("run_id", runId)
+        .eq("course_code", request.course_code)
+        .eq("ta_roll_no", request.ta_roll_no);
+
+      if (deleteError) throw new Error(`Failed to remove TA: ${deleteError.message}`);
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from("ta_change_requests")
+      .update({
+        status: "approved",
+        admin_remark: (admin_remark || "").trim(),
+        reviewed_by: reviewerEmail,
+        reviewed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", requestId)
+      .select()
+      .single();
+
+    if (updateError) throw new Error(updateError.message);
+
+    res.json({
+      success: true,
+      request: updated,
+      message: `Request approved. Allocations updated successfully.`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/ta/allocations/manual-add (Requirement 6)
+// Admin directly adds a TA to a course in the active published run.
+router.post("/allocations/manual-add", requireAdmin, async (req, res) => {
+  const { course_code, ta_roll_no } = req.body;
+  if (!course_code || !ta_roll_no) {
+    return res.status(400).json({ error: "Missing course_code or ta_roll_no" });
+  }
+
+  try {
+    const { data: runs } = await supabase
+      .from("allocation_runs")
+      .select("id, is_published")
+      .order("id", { ascending: false })
+      .limit(1);
+
+    const activeRun = runs?.[0];
+    if (!activeRun) {
+      return res.status(400).json({ error: "No allocation run found." });
+    }
+
+    const { data: taRecord } = await supabase
+      .from("ta_details")
+      .select("roll_no, name, program")
+      .eq("roll_no", ta_roll_no.trim())
+      .maybeSingle();
+
+    const cleanRoll = taRecord?.roll_no || ta_roll_no.trim().toUpperCase();
+    const taName = taRecord?.name || cleanRoll;
+    const taProgram = taRecord?.program || "";
+
+    // Delete existing assignment for this TA in this run (if any)
+    await supabase
+      .from("allocations")
+      .delete()
+      .eq("run_id", activeRun.id)
+      .eq("ta_roll_no", cleanRoll);
+
+    // Insert into target course
+    const { error: insertError } = await supabase
+      .from("allocations")
+      .insert([{
+        run_id: activeRun.id,
+        course_code: course_code.trim(),
+        ta_roll_no: cleanRoll,
+        ta_name: taName,
+        ta_program: taProgram,
+        is_preferred: false,
+        is_supervisor: false,
+      }]);
+
+    if (insertError) throw new Error(insertError.message);
+
+    res.json({
+      success: true,
+      message: `TA ${cleanRoll} assigned to ${course_code.trim()} successfully.`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/ta/allocations/manual-remove (Requirement 6)
+// Admin directly removes a TA from a course in the active published run.
+router.post("/allocations/manual-remove", requireAdmin, async (req, res) => {
+  const { course_code, ta_roll_no } = req.body;
+  if (!course_code || !ta_roll_no) {
+    return res.status(400).json({ error: "Missing course_code or ta_roll_no" });
+  }
+
+  try {
+    const { data: runs } = await supabase
+      .from("allocation_runs")
+      .select("id")
+      .order("id", { ascending: false })
+      .limit(1);
+
+    const activeRun = runs?.[0];
+    if (!activeRun) {
+      return res.status(400).json({ error: "No allocation run found." });
+    }
+
+    const cleanRoll = ta_roll_no.trim().toUpperCase();
+
+    const { error: deleteError } = await supabase
+      .from("allocations")
+      .delete()
+      .eq("run_id", activeRun.id)
+      .eq("course_code", course_code.trim())
+      .eq("ta_roll_no", cleanRoll);
+
+    if (deleteError) throw new Error(deleteError.message);
+
+    res.json({
+      success: true,
+      message: `TA ${cleanRoll} removed from ${course_code.trim()} successfully.`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;
