@@ -2,11 +2,19 @@ import { WebSocketServer, WebSocket } from 'ws';
 
 export const LAB_AGENT_TOKEN = process.env.LAB_AGENT_TOKEN || 'csdesk_lab_secure_token_2026';
 
+function matchesLab(agentLab, filterLab) {
+  if (!filterLab || filterLab === 'ALL') return true;
+  const a = (agentLab || '').toUpperCase();
+  const f = filterLab.toUpperCase();
+  return a === f || a.startsWith(f + '_') || f.startsWith(a + '_') || a.replace(/_\d+$/, '') === f;
+}
+
 class LabAgentHub {
   constructor() {
     this.agents = new Map(); // socketId -> AgentInfo
     this.adminSockets = new Set(); // WebSockets for React frontends
     this.executionHistory = new Map(); // executionId -> { command, timestamp, results: Map<pcName, { status, logs, exitCode }> }
+    this.pcAliases = new Map(); // identifier (originalName or IP) -> customDisplayName
   }
 
   init(server) {
@@ -122,9 +130,15 @@ class LabAgentHub {
           return;
         }
 
+        const rawPcName = msg.pcName || `PC-${remoteIp}`;
+        const alias = this.pcAliases.get(rawPcName) || this.pcAliases.get(remoteIp) || null;
+        const displayName = alias || rawPcName;
+
         const agentInfo = {
           socketId,
-          pcName: msg.pcName || `PC-${remoteIp}`,
+          pcName: displayName,
+          originalName: rawPcName,
+          displayName: displayName,
           lab: (msg.lab || 'UNKNOWN').toUpperCase(),
           ip: msg.ip || remoteIp,
           os: msg.os || 'Linux',
@@ -133,7 +147,7 @@ class LabAgentHub {
           ws
         };
         this.agents.set(socketId, agentInfo);
-        console.log(`[lab-agent] Registered: ${agentInfo.pcName} [Lab: ${agentInfo.lab}] IP: ${agentInfo.ip}`);
+        console.log(`[lab-agent] Registered: ${agentInfo.pcName} (original: ${agentInfo.originalName}) [Lab: ${agentInfo.lab}] IP: ${agentInfo.ip}`);
         
         ws.send(JSON.stringify({ type: 'REGISTER_ACK', status: 'OK' }));
         this.broadcastToAdmins({ type: 'AGENT_CONNECTED', agent: this.sanitizeAgent(agentInfo) });
@@ -213,7 +227,9 @@ class LabAgentHub {
 
   sanitizeAgent(agent) {
     return {
-      pcName: agent.pcName,
+      pcName: agent.displayName || agent.pcName,
+      displayName: agent.displayName || agent.pcName,
+      originalName: agent.originalName || agent.pcName,
       lab: agent.lab,
       ip: agent.ip,
       os: agent.os,
@@ -222,10 +238,34 @@ class LabAgentHub {
     };
   }
 
+  renamePc(targetIdentifier, newName) {
+    const cleanNew = (newName || '').trim();
+    if (!cleanNew) return false;
+
+    // Save alias by identifier
+    this.pcAliases.set(targetIdentifier, cleanNew);
+
+    let found = false;
+    for (const agent of this.agents.values()) {
+      if (agent.pcName === targetIdentifier || agent.originalName === targetIdentifier || agent.ip === targetIdentifier) {
+        agent.pcName = cleanNew;
+        agent.displayName = cleanNew;
+        found = true;
+        this.broadcastToAdmins({
+          type: 'AGENT_RENAMED',
+          originalName: agent.originalName,
+          newName: cleanNew,
+          agent: this.sanitizeAgent(agent)
+        });
+      }
+    }
+    return true;
+  }
+
   getFleet(labFilter = null) {
     const list = [];
     for (const agent of this.agents.values()) {
-      if (!labFilter || labFilter === 'ALL' || agent.lab === labFilter.toUpperCase()) {
+      if (matchesLab(agent.lab, labFilter)) {
         list.push(this.sanitizeAgent(agent));
       }
     }
@@ -239,18 +279,25 @@ class LabAgentHub {
     const pcsRecord = {};
 
     for (const agent of this.agents.values()) {
-      const matchLab = !lab || lab === 'ALL' || agent.lab === lab.toUpperCase();
-      const matchPc = !targetPcs || targetPcs.length === 0 || targetPcs.includes(agent.pcName);
+      const matchLab = matchesLab(agent.lab, lab);
+      const matchPc = !targetPcs || targetPcs.length === 0 || 
+        targetPcs.includes(agent.pcName) || 
+        targetPcs.includes(agent.originalName) || 
+        targetPcs.includes(agent.displayName);
 
       if (matchLab && matchPc && agent.ws.readyState === WebSocket.OPEN) {
         agent.status = 'busy';
-        pcsRecord[agent.pcName] = {
+        const primaryKey = agent.pcName;
+        pcsRecord[primaryKey] = {
           status: 'running',
           logs: [],
           exitCode: null,
           duration: null,
           error: null
         };
+        if (agent.originalName && agent.originalName !== primaryKey) {
+          pcsRecord[agent.originalName] = pcsRecord[primaryKey];
+        }
 
         agent.ws.send(JSON.stringify({
           type: 'EXECUTE',

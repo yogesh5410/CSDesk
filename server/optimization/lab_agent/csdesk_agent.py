@@ -275,6 +275,15 @@ class LabAgent:
         start_time = time.time()
         exit_code = 0
         error_msg = None
+        log_file_path = "/tmp/csdesk-last-run.log"
+
+        try:
+            with open(log_file_path, "w") as f:
+                f.write(f"=== CSDesk Execution [{execution_id}] ===\n")
+                f.write(f"Command: {script}\n")
+                f.write(f"Started: {time.ctime()}\n\n")
+        except Exception:
+            pass
 
         # Determine shell
         if platform.system() == "Windows":
@@ -297,6 +306,14 @@ class LabAgent:
                     break
                 clean_line = line.rstrip('\r\n')
                 print(f"[{self.pc_name}] {clean_line}")
+
+                # Save line to local log file
+                try:
+                    with open(log_file_path, "a") as f:
+                        f.write(clean_line + "\n")
+                except Exception:
+                    pass
+
                 try:
                     self.ws.send_text(json.dumps({
                         "type": "LOG_LINE",
@@ -318,6 +335,15 @@ class LabAgent:
 
         duration = round(time.time() - start_time, 2)
         print(f"[✓] Execution [{execution_id}] finished in {duration}s with exit code {exit_code}")
+
+        # Finish writing to local log file
+        try:
+            with open(log_file_path, "a") as f:
+                f.write(f"\n=== Finished with Exit Code: {exit_code} (Duration: {duration}s) ===\n")
+                if error_msg:
+                    f.write(f"Error: {error_msg}\n")
+        except Exception:
+            pass
 
         try:
             self.ws.send_text(json.dumps({

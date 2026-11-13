@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { apiUrl } from "../../lib/api";
+import { apiUrl, apiGet, apiPost } from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 import {
   Monitor,
   Terminal,
@@ -14,16 +15,23 @@ import {
   Layers,
   Sparkles,
   RotateCcw,
-  Trash2
+  Trash2,
+  ShieldCheck,
+  ShieldAlert,
+  Lock,
+  Pencil,
+  X
 } from "lucide-react";
 
 const LAB_OPTIONS = [
   { id: "TL1", name: "TL1 (106)", capacity: 84 },
   { id: "TL2", name: "TL2 (105)", capacity: 20 },
+  { id: "ED1", name: "ED1 (All ED1 Rooms)", capacity: 144 },
   { id: "ED1_312", name: "ED1 (312)", capacity: 32 },
   { id: "ED1_308", name: "ED1 (308)", capacity: 32 },
   { id: "ED1_320", name: "ED1 (320)", capacity: 80 },
-  { id: "ED2_302", name: "ED2 (302)", capacity: 80 },
+  { id: "ED2", name: "ED2 (302)", capacity: 80 },
+  { id: "ALL", name: "All Labs (Campus-wide)", capacity: 328 },
 ];
 
 const PRESETS = [
@@ -44,12 +52,23 @@ const PRESETS = [
     cmd: "sudo snap install code --classic",
   },
   {
+    label: "Install LaTeX (TexLive)",
+    cmd: "sudo apt-get update -y && sudo apt-get install -y texlive-latex-base texlive-fonts-recommended && pdflatex --version",
+  },
+  {
+    label: "Check LaTeX Installed",
+    cmd: "which pdflatex && pdflatex --version | head -n 2 || echo 'LaTeX is NOT installed'",
+  },
+  {
     label: "System Health & Disk Space",
     cmd: "hostname && uptime && df -h / && free -m",
   },
 ];
 
 export default function LabAutomation() {
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
+
   const [selectedLab, setSelectedLab] = useState("TL1");
   const [fleet, setFleet] = useState([]);
   const [selectedPcs, setSelectedPcs] = useState([]);
@@ -62,20 +81,92 @@ export default function LabAutomation() {
   const [pcStates, setPcStates] = useState({});
   const [activeConsolePc, setActiveConsolePc] = useState(null);
 
+  // Custom PC display name / alias state
+  const [editingPc, setEditingPc] = useState(null);
+  const [editNameVal, setEditNameVal] = useState("");
+  const [pcAliases, setPcAliases] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("csdesk_pc_aliases") || "{}");
+    } catch {
+      return {};
+    }
+  });
+
   const terminalEndRef = useRef(null);
 
   // 1. Fetch Fleet & Filter for Selected Lab
   const fetchFleet = async () => {
     try {
-      const res = await fetch(apiUrl(`/api/lab-automation/fleet?lab=${selectedLab}`));
-      const data = await res.json();
+      const data = await apiGet(`/api/lab-automation/fleet?lab=${selectedLab}`);
       if (data.agents) {
-        setFleet(data.agents);
+        const enriched = data.agents.map((a) => {
+          const alias = pcAliases[a.originalName || a.pcName] || pcAliases[a.ip] || a.displayName || a.pcName;
+          return {
+            ...a,
+            pcName: alias,
+            displayName: alias,
+            originalName: a.originalName || a.pcName,
+          };
+        });
+        setFleet(enriched);
         // By default select all online PCs in this lab if none selected
-        setSelectedPcs(data.agents.map((a) => a.pcName));
+        setSelectedPcs(enriched.map((a) => a.pcName));
       }
     } catch (err) {
       console.error("Failed to fetch fleet:", err);
+    }
+  };
+
+  const handleSaveRename = async (pc, e) => {
+    e?.stopPropagation();
+    const trimmed = editNameVal.trim();
+    if (!trimmed) {
+      setEditingPc(null);
+      return;
+    }
+
+    const identifier = pc.originalName || pc.pcName;
+    const updatedAliases = { ...pcAliases, [identifier]: trimmed, [pc.ip]: trimmed };
+    setPcAliases(updatedAliases);
+    try {
+      localStorage.setItem("csdesk_pc_aliases", JSON.stringify(updatedAliases));
+    } catch {}
+
+    setFleet((prev) =>
+      prev.map((a) =>
+        (a.originalName === identifier || a.pcName === identifier || a.ip === pc.ip)
+          ? { ...a, pcName: trimmed, displayName: trimmed }
+          : a
+      )
+    );
+
+    setSelectedPcs((prev) =>
+      prev.map((p) => (p === identifier || p === pc.pcName ? trimmed : p))
+    );
+
+    if (activeConsolePc === identifier || activeConsolePc === pc.pcName) {
+      setActiveConsolePc(trimmed);
+    }
+
+    setPcStates((prev) => {
+      if (prev[pc.pcName] && pc.pcName !== trimmed) {
+        const next = { ...prev };
+        next[trimmed] = next[pc.pcName];
+        delete next[pc.pcName];
+        return next;
+      }
+      return prev;
+    });
+
+    setEditingPc(null);
+
+    try {
+      await apiPost("/api/lab-automation/rename-pc", {
+        targetIdentifier: identifier,
+        newName: trimmed,
+      });
+    } catch (err) {
+      console.warn("Failed to notify server of rename:", err);
     }
   };
 
@@ -122,9 +213,7 @@ export default function LabAutomation() {
 
     const pollInterval = setInterval(async () => {
       try {
-        const res = await fetch(apiUrl(`/api/lab-automation/status/${executionId}`));
-        if (!res.ok) return;
-        const data = await res.json();
+        const data = await apiGet(`/api/lab-automation/status/${executionId}`);
         if (data.pcs) {
           setPcStates((prev) => {
             const next = { ...prev };
@@ -223,6 +312,14 @@ export default function LabAutomation() {
       fetchFleet();
     } else if (msg.type === "AGENT_CONNECTED") {
       fetchFleet();
+    } else if (msg.type === "AGENT_RENAMED") {
+      setFleet((prev) =>
+        prev.map((a) =>
+          (a.originalName === msg.originalName || a.pcName === msg.originalName || a.ip === msg.agent?.ip)
+            ? { ...a, pcName: msg.newName, displayName: msg.newName }
+            : a
+        )
+      );
     }
   };
 
@@ -276,8 +373,12 @@ export default function LabAutomation() {
     }
   };
 
-  // Execute Command
+  // Execute Command (ADMIN ONLY)
   const handleExecute = async () => {
+    if (!isAdmin) {
+      alert("Access Denied: Only users with the Administrator role are authorized to run remote commands on lab PCs.");
+      return;
+    }
     if (!script.trim() || selectedPcs.length === 0) return;
 
     setIsExecuting(true);
@@ -293,36 +394,45 @@ export default function LabAutomation() {
     setActiveConsolePc(selectedPcs[0]);
 
     try {
-      const res = await fetch(apiUrl("/api/lab-automation/execute"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lab: selectedLab,
-          targetPcs: selectedPcs,
-          script: script.trim(),
-          executionId: newExecId,
-        }),
+      const data = await apiPost("/api/lab-automation/execute", {
+        lab: selectedLab,
+        targetPcs: selectedPcs,
+        script: script.trim(),
+        executionId: newExecId,
       });
-      const data = await res.json();
       if (!data.success) {
         alert("Execution failed to dispatch: " + (data.error || "Unknown"));
         setIsExecuting(false);
       }
     } catch (err) {
-      alert("Network error: " + err.message);
+      alert("Execution error: " + (err.message || "Failed to contact server"));
       setIsExecuting(false);
     }
   };
 
-  const copyInstallCommand = () => {
+  const getBackendUrl = () => {
+    if (import.meta.env.VITE_API_BASE_URL) {
+      return import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "");
+    }
+    const protocol = window.location.protocol;
     const host = window.location.hostname;
-    const cmd = `curl -sSL http://${host}:5000/api/lab-automation/install.sh | sudo bash -s -- ${selectedLab}`;
+    return `${protocol}//${host}:5000`;
+  };
+
+  const copyInstallCommand = () => {
+    const backendUrl = getBackendUrl();
+    const cmd = `curl -sSL ${backendUrl}/api/lab-automation/install.sh | sudo bash -s -- ${selectedLab} ${backendUrl}`;
     navigator.clipboard.writeText(cmd);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const activeLogs = activeConsolePc && pcStates[activeConsolePc] ? pcStates[activeConsolePc].logs : [];
+
+  const successCount = Object.values(pcStates).filter((s) => s.status === "success").length;
+  const failedCount = Object.values(pcStates).filter((s) => s.status === "failed").length;
+  const runningCount = Object.values(pcStates).filter((s) => s.status === "running").length;
+  const hasExecution = successCount > 0 || failedCount > 0 || runningCount > 0;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -371,6 +481,27 @@ export default function LabAutomation() {
         </div>
       </div>
 
+      {/* Role & Security Banner */}
+      {!isAdmin ? (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 flex items-start gap-3 shadow-sm">
+          <ShieldAlert className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <span className="font-bold">Restricted View (Current Role: {role || "student"}):</span>{" "}
+            Remote command execution across lab PCs is restricted strictly to <strong>Administrators</strong>. You can inspect connected machines and live logs, but command dispatching is locked.
+          </div>
+        </div>
+      ) : (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs shadow-sm">
+          <div className="flex items-center gap-2 font-medium">
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>Authenticated as <strong>Administrator</strong>. Authorized to dispatch remote execution commands.</span>
+          </div>
+          <span className="text-[11px] font-mono bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded border border-emerald-300">
+            RBAC: ADMIN
+          </span>
+        </div>
+      )}
+
       {/* 2. Room Fleet Cards & Status */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-slate-100">
@@ -382,6 +513,25 @@ export default function LabAutomation() {
             <span className="bg-emerald-50 text-emerald-700 text-xs px-2.5 py-0.5 rounded-full font-bold border border-emerald-200">
               {fleet.length} Online
             </span>
+            {hasExecution && (
+              <div className="hidden sm:flex items-center gap-1.5 ml-2">
+                {runningCount > 0 && (
+                  <span className="bg-amber-50 text-amber-700 text-xs px-2 py-0.5 rounded-full font-bold border border-amber-200 flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3 animate-spin" /> {runningCount} Running
+                  </span>
+                )}
+                {successCount > 0 && (
+                  <span className="bg-emerald-50 text-emerald-700 text-xs px-2 py-0.5 rounded-full font-bold border border-emerald-200 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> {successCount} Done
+                  </span>
+                )}
+                {failedCount > 0 && (
+                  <span className="bg-rose-50 text-rose-700 text-xs px-2 py-0.5 rounded-full font-bold border border-rose-200 flex items-center gap-1 animate-pulse">
+                    <AlertCircle className="w-3 h-3" /> {failedCount} Failed
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {fleet.length > 0 && (
@@ -400,6 +550,17 @@ export default function LabAutomation() {
         </div>
 
         {/* Fleet Grid */}
+        {failedCount > 0 && (
+          <div className="mt-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs p-3 rounded-xl flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+              <span>
+                <strong>{failedCount} PC(s) encountered an error!</strong> Click on any red card below to view its error log in the console.
+              </span>
+            </div>
+          </div>
+        )}
+
         {fleet.length === 0 ? (
           <div className="text-center py-10 px-4">
             <div className="w-14 h-14 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
@@ -415,7 +576,7 @@ export default function LabAutomation() {
             <div className="max-w-xl mx-auto flex items-center bg-slate-900 text-slate-200 px-4 py-2.5 rounded-xl font-mono text-xs text-left shadow-inner">
               <span className="text-emerald-400 mr-2">$</span>
               <span className="flex-1 overflow-x-auto select-all">
-                curl -sSL http://{window.location.hostname}:5000/api/lab-automation/install.sh | sudo bash -s -- {selectedLab}
+                curl -sSL {getBackendUrl()}/api/lab-automation/install.sh | sudo bash -s -- {selectedLab} {getBackendUrl()}
               </span>
               <button
                 onClick={copyInstallCommand}
@@ -429,29 +590,91 @@ export default function LabAutomation() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 pt-4">
             {fleet.map((pc) => {
-              const isSelected = selectedPcs.includes(pc.pcName);
-              const pcState = pcStates[pc.pcName];
+              const displayName = pc.displayName || pc.pcName;
+              const originalName = pc.originalName || pc.pcName;
+              const pcIdentifier = pc.originalName || pc.pcName;
+              const isSelected = selectedPcs.includes(displayName) || selectedPcs.includes(originalName);
+              const pcState = pcStates[displayName] || pcStates[originalName];
 
               return (
                 <div
-                  key={pc.pcName}
-                  onClick={() => toggleSelectPc(pc.pcName)}
+                  key={pcIdentifier}
+                  onClick={() => {
+                    setActiveConsolePc(displayName);
+                    toggleSelectPc(displayName);
+                  }}
                   className={`p-3 rounded-xl border transition-all cursor-pointer select-none relative ${
-                    isSelected
+                    pcState?.status === "failed"
+                      ? "bg-rose-50/90 border-rose-500 shadow-md ring-2 ring-rose-400"
+                      : pcState?.status === "success"
+                      ? "bg-emerald-50/40 border-emerald-400"
+                      : isSelected
                       ? "bg-indigo-50/70 border-indigo-500 shadow-sm ring-1 ring-indigo-500"
                       : "bg-white border-slate-200 hover:border-slate-300 opacity-60"
                   }`}
                 >
-                  <div className="flex justify-between items-start mb-1.5">
-                    <span className="font-bold text-xs text-slate-800 flex items-center gap-1.5 truncate">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                      {pc.pcName}
-                    </span>
+                  <div className="flex justify-between items-start mb-1.5 gap-1">
+                    {editingPc === pcIdentifier ? (
+                      <div className="flex items-center gap-1 flex-1" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          value={editNameVal}
+                          onChange={(e) => setEditNameVal(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveRename(pc, e);
+                            if (e.key === "Escape") setEditingPc(null);
+                          }}
+                          autoFocus
+                          className="w-full text-xs font-bold bg-white border border-indigo-500 rounded px-1.5 py-0.5 text-slate-900 focus:outline-none ring-1 ring-indigo-500"
+                          placeholder="e.g. PC 01"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => handleSaveRename(pc, e)}
+                          title="Save"
+                          className="p-1 text-emerald-600 hover:bg-emerald-100 rounded"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingPc(null);
+                          }}
+                          title="Cancel"
+                          className="p-1 text-slate-400 hover:bg-slate-100 rounded"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 flex-1 min-w-0">
+                        <span className="font-bold text-xs text-slate-800 flex items-center gap-1.5 truncate">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></span>
+                          <span className="truncate">{displayName}</span>
+                        </span>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingPc(pcIdentifier);
+                              setEditNameVal(displayName);
+                            }}
+                            title="Edit PC name / label"
+                            className="p-0.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded transition-colors"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => {}}
-                      className="rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                      className="rounded text-indigo-600 focus:ring-0 cursor-pointer flex-shrink-0 mt-0.5"
                     />
                   </div>
                   <div className="text-[11px] font-mono text-slate-500 truncate">{pc.ip}</div>
@@ -544,11 +767,20 @@ export default function LabAutomation() {
               <button
                 type="button"
                 onClick={handleExecute}
-                disabled={isExecuting || selectedPcs.length === 0 || !script.trim()}
-                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold text-sm px-5 py-2.5 rounded-xl shadow-md transition-all active:scale-[0.98]"
+                disabled={!isAdmin || isExecuting || selectedPcs.length === 0 || !script.trim()}
+                title={!isAdmin ? "Administrator permissions required" : ""}
+                className={`flex items-center gap-2 font-bold text-sm px-5 py-2.5 rounded-xl shadow-md transition-all ${
+                  !isAdmin
+                    ? "bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300"
+                    : "bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white active:scale-[0.98]"
+                }`}
               >
-                <Play className="w-4 h-4 fill-current" />
-                {isExecuting ? "Executing..." : `Execute on ${selectedPcs.length} PCs`}
+                {!isAdmin ? <Lock className="w-4 h-4 text-slate-400" /> : <Play className="w-4 h-4 fill-current" />}
+                {!isAdmin
+                  ? "Admin Only (Locked)"
+                  : isExecuting
+                  ? "Executing..."
+                  : `Execute on ${selectedPcs.length} PCs`}
               </button>
             </div>
           </div>

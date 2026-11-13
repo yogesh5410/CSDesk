@@ -8,6 +8,17 @@ export async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
+  // Developer testing override: allow switching role dynamically via X-Simulate-Role in non-production
+  const simulatedRole = req.headers["x-simulate-role"];
+  if (!token && simulatedRole && process.env.NODE_ENV !== "production") {
+    req.user = {
+      email: (req.headers["x-simulate-user"] || `dev-${simulatedRole}@${ALLOWED_EMAIL_DOMAIN}`).toLowerCase(),
+      name: `Simulated ${simulatedRole}`,
+      role: simulatedRole.toLowerCase(),
+    };
+    return next();
+  }
+
   if (!token) {
     return res.status(401).json({ error: "Missing authorization token" });
   }
@@ -47,7 +58,6 @@ export async function requireAuth(req, res, next) {
   }
 
   // Developer testing override: allow switching role dynamically via X-Simulate-Role / X-Simulate-User
-  const simulatedRole = req.headers["x-simulate-role"];
   if (simulatedRole && ["admin", "faculty", "ta", "student"].includes(simulatedRole.toLowerCase())) {
     req.user.role = simulatedRole.toLowerCase();
   }
