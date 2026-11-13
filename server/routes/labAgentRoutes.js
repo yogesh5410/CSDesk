@@ -3,12 +3,23 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { labAgentHub, LAB_AGENT_TOKEN } from '../services/labAgentHub.js';
+import { requireAuth } from '../middleware/requireAuth.js';
 
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// 1. Get currently connected fleet (filtered by lab)
-router.get('/fleet', (req, res) => {
+// Security Middleware: Ensure only authenticated users with 'admin' role can execute commands
+function requireAdmin(req, res, next) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({
+      error: 'Access denied. Only system administrators can run remote commands on lab PCs.'
+    });
+  }
+  next();
+}
+
+// 1. Get currently connected fleet (filtered by lab) - Authenticated users
+router.get('/fleet', requireAuth, (req, res) => {
   const lab = req.query.lab || 'ALL';
   const fleet = labAgentHub.getFleet(lab);
   res.json({
@@ -18,8 +29,8 @@ router.get('/fleet', (req, res) => {
   });
 });
 
-// 2. Dispatch command to selected PCs
-router.post('/execute', (req, res) => {
+// 2. Dispatch command to selected PCs - STRICTLY ADMIN ONLY
+router.post('/execute', requireAuth, requireAdmin, (req, res) => {
   const { lab, targetPcs, script } = req.body;
 
   if (!script || !script.trim()) {
@@ -40,13 +51,24 @@ router.post('/execute', (req, res) => {
   });
 });
 
-// 2b. Get live status of an execution job
-router.get('/status/:executionId', (req, res) => {
+// 2b. Get live status of an execution job - Authenticated users
+router.get('/status/:executionId', requireAuth, (req, res) => {
   const status = labAgentHub.getExecutionStatus(req.params.executionId);
   if (!status) {
     return res.status(404).json({ error: "Execution ID not found" });
   }
   res.json(status);
+});
+
+// 2c. Rename a PC / Set friendly display alias - STRICTLY ADMIN ONLY
+router.post('/rename-pc', requireAuth, requireAdmin, (req, res) => {
+  const { targetIdentifier, newName } = req.body;
+  if (!targetIdentifier || !newName || !newName.trim()) {
+    return res.status(400).json({ error: "Target PC identifier and newName are required." });
+  }
+
+  const success = labAgentHub.renamePc(targetIdentifier, newName.trim());
+  res.json({ success, newName: newName.trim() });
 });
 
 // 3. Serve the agent Python script directly for curl downloads
@@ -72,11 +94,15 @@ set -e
 
 LAB="\${1:-TL1}"
 SERVER_URL="\${2:-${serverUrl}}"
+CUSTOM_PC_NAME="\${3:-}"
 
 echo "=========================================================="
 echo "  CSDesk Lab Agent Installer"
 echo "  Target Lab: \$LAB"
 echo "  Server:     \$SERVER_URL"
+if [ -n "$CUSTOM_PC_NAME" ]; then
+echo "  PC Name:    \$CUSTOM_PC_NAME"
+fi
 echo "=========================================================="
 
 if [ "$EUID" -ne 0 ]; then
@@ -102,7 +128,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=/opt/csdesk-agent
-ExecStart=/usr/bin/python3 /opt/csdesk-agent/csdesk_agent.py --server __SERVER_URL__ --lab __LAB__ --token __TOKEN__
+ExecStart=/usr/bin/python3 /opt/csdesk-agent/csdesk_agent.py --server __SERVER_URL__ --lab __LAB__ --token __TOKEN__ __EXTRA_ARGS__
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -115,6 +141,12 @@ EOF
 sed -i "s|__SERVER_URL__|\$SERVER_URL|g" /etc/systemd/system/csdesk-agent.service
 sed -i "s|__LAB__|\$LAB|g" /etc/systemd/system/csdesk-agent.service
 sed -i "s|__TOKEN__|${LAB_AGENT_TOKEN}|g" /etc/systemd/system/csdesk-agent.service
+
+if [ -n "$CUSTOM_PC_NAME" ]; then
+  sed -i "s|__EXTRA_ARGS__|--pc \$CUSTOM_PC_NAME|g" /etc/systemd/system/csdesk-agent.service
+else
+  sed -i "s|__EXTRA_ARGS__||g" /etc/systemd/system/csdesk-agent.service
+fi
 
 systemctl daemon-reload
 systemctl enable --now csdesk-agent

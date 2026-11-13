@@ -1,9 +1,12 @@
+
 # 🛠️ Lab Software Automation (Agent-Based Architecture) — Implementation & Testing Plan
 
 ## 1. Executive Summary
+
 This document specifies the architecture, component implementation, user experience flow, and testing strategy for **Lab Software Installs** (`/dashboard/lab-software`) in CSDesk.
 
 The system uses a **Lightweight Client-Server Agent Architecture**:
+
 * A tiny Python background agent runs on lab PCs and connects via **WebSockets** to the CSDesk Master Server.
 * **No IP tracking needed:** PCs report their own hostname, lab room, and OS automatically.
 * **Instant Dual-Boot awareness:** If a machine is in Windows or off, it doesn't connect. Only active Linux PCs show as Online.
@@ -60,6 +63,7 @@ The system uses a **Lightweight Client-Server Agent Architecture**:
 ## 3. System Architecture & Components
 
 ### 3.1. Master Server (`server/services/labAgentHub.js`)
+
 * Mounts a WebSocket server on the Express HTTP server at path `/ws/lab-agent`.
 * Maintains in-memory connected agent registry:
   ```typescript
@@ -79,6 +83,7 @@ The system uses a **Lightweight Client-Server Agent Architecture**:
   * `GET /api/lab-automation/install-agent.sh`: Serves the 1-line client install script.
 
 ### 3.2. Lab PC Agent (`server/optimization/lab_agent/csdesk_agent.py`)
+
 * Pure Python 3 (standard library only — **no pip install needed**).
 * Uses Python `urllib` / raw sockets for WebSocket connection.
 * Periodically sends heartbeats every 5 seconds.
@@ -88,6 +93,7 @@ The system uses a **Lightweight Client-Server Agent Architecture**:
   * Sends completion event with `exit_code` and duration.
 
 ### 3.3. 1-Line Client Installer (`install-agent.sh`)
+
 * Executed once on a student PC (or baked into the lab disk image):
   ```bash
   curl -sSL http://<MASTER_IP>:5000/api/lab-automation/install-agent.sh | sudo bash -s -- --lab TL1
@@ -95,6 +101,7 @@ The system uses a **Lightweight Client-Server Agent Architecture**:
 * Creates a `systemd` service (`/etc/systemd/system/csdesk-agent.service`) so the agent automatically connects on boot.
 
 ### 3.4. React Frontend (`client/src/pages/dashboard/LabAutomation.jsx`)
+
 * **Room Selector:** Top dropdown allowing selection of `TL1`, `TL2`, `ED1`, `ED2`, or `All Labs`.
 * **Filtered Grid:** Only displays online PCs matching the selected room.
 * **Command Box:** Quick presets + full script editor.
@@ -105,23 +112,24 @@ The system uses a **Lightweight Client-Server Agent Architecture**:
 ## 4. Implementation Steps (Execution Order)
 
 1. **Step 1: Backend Hub**
+
    * Create `server/services/labAgentHub.js` to manage WebSocket connections and event dispatching.
    * Update `server/index.js` to attach the WebSocket server to the HTTP instance.
    * Add `server/routes/labAgentRoutes.js` for fleet queries and command execution.
-
 2. **Step 2: Python Agent**
+
    * Write `server/optimization/lab_agent/csdesk_agent.py` using pure Python 3 standard library.
    * Add support for auto-reconnect, command execution, and real-time line streaming.
-
 3. **Step 3: 1-Line Installer Script**
-   * Write `server/optimization/lab_agent/install-agent.sh` that installs the systemd service.
 
+   * Write `server/optimization/lab_agent/install-agent.sh` that installs the systemd service.
 4. **Step 4: Frontend UI**
+
    * Create `client/src/pages/dashboard/LabAutomation.jsx`.
    * Wire it into `client/src/App.jsx` at path `/dashboard/lab-software`.
    * Implement Room filtering, PC selection, command editor, and live streaming console.
-
 5. **Step 5: End-to-End Verification**
+
    * Run local agent instances to simulate multiple PCs in TL1 and ED1.
    * Test room filtering in the browser.
    * Execute real commands and observe live terminal streaming.
@@ -131,6 +139,7 @@ The system uses a **Lightweight Client-Server Agent Architecture**:
 ## 5. How We Will Test This Locally
 
 We can test the entire system right now on your machine without needing 40 physical PCs:
+
 1. **Start CSDesk backend and frontend**.
 2. **Launch Simulated Agents:**
    * Run simulated Agent 1: `python3 csdesk_agent.py --server http://localhost:5000 --lab TL1 --pc TL1-PC01`
