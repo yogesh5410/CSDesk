@@ -15,7 +15,7 @@ const STEPS = [
   {
     n: 3,
     title: "Work out when each TA is busy",
-    body: "PhD scholars are treated as free in every slot. For an M.Tech student, look up their course registrations, resolve each of those courses to cells, and union them. That set is when they cannot assist.",
+    body: "For each TA (both M.Tech and PhD scholars), look up their course registrations, resolve each of those courses to cells, and union them. That set is when they cannot assist. Scholars with no registered coursework remain free across all slots.",
   },
   {
     n: 4,

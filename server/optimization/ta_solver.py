@@ -243,7 +243,7 @@ def solve(data):
     Workflow:
     1. Unpack input datasets (courses, timetable, TAs, registrations, requirements).
     2. Build spatial slot index and compute timetable cell footprint for each course.
-    3. Determine TA availability: PhD scholars free; M.Tech students busy during class.
+    3. Determine TA availability: M.Tech and PhD scholars accumulate busy hours from registered coursework.
     4. Pre-filter candidate pairs into an eligibility list (guarantees zero clashes).
     5. Build CP-SAT model with decision variables, hard bounds, and objective weights.
     6. Solve to global optimality and package detailed result JSON.
@@ -269,19 +269,31 @@ def solve(data):
     progress("availability", 32, "computing TA availability from registrations")
     registered = defaultdict(list)
     for r in data["registrations"]:
-        registered[r["student_roll_no"]].append(r["course_code"])
+        clean_roll = (r.get("student_roll_no") or "").strip().upper()
+        clean_code = (r.get("course_code") or "").strip()
+        if clean_roll and clean_code:
+            registered[clean_roll].append(clean_code)
+
+    # Build a lookup for course_cells that also supports individual slash components (e.g., DSL504 -> DSL504/DS504)
+    cell_lookup = {}
+    for c_code, c_cells in course_cells.items():
+        cell_lookup[c_code] = c_cells
+        cell_lookup[c_code.upper()] = c_cells
+        for part in c_code.split("/"):
+            part_clean = part.strip()
+            if part_clean:
+                cell_lookup[part_clean] = c_cells
+                cell_lookup[part_clean.upper()] = c_cells
 
     busy = {}
     for roll, ta in tas.items():
-        if (ta.get("program") or "").lower().startswith("p"):
-            # PhD scholars have completed coursework and are free in every slot
-            busy[roll] = set()
-        else:
-            # M.Tech students accumulate busy hours from all their enrolled classes
-            cells = set()
-            for code in registered.get(roll, []):
-                cells |= course_cells.get(code, set())
-            busy[roll] = cells
+        # Both M.Tech and PhD TAs accumulate busy hours from any enrolled classes.
+        # Scholars with no registered coursework remain free across all slots.
+        cells = set()
+        norm_roll = (roll or "").strip().upper()
+        for code in registered.get(norm_roll, []):
+            cells |= cell_lookup.get(code, cell_lookup.get(code.upper(), set()))
+        busy[roll] = cells
 
     # Phase 4: Parse faculty preference rankings into ordered rank maps
     prefs = {}

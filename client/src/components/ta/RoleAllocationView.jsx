@@ -10,6 +10,13 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
   const [expandedCourse, setExpandedCourse] = useState(null);
   const [selectedCourse, setSelectedCourse] = useState("all");
   const [expandedAllocCourses, setExpandedAllocCourses] = useState({});
+  const [courseActiveTabs, setCourseActiveTabs] = useState({}); // { [course_code]: 'assigned' | 'request' | 'submitted' }
+
+  const getCourseTab = (code) => courseActiveTabs[code] || "assigned";
+  const setCourseTab = (code, tab) => {
+    setCourseActiveTabs((prev) => ({ ...prev, [code]: tab }));
+    setExpandedAllocCourses((prev) => ({ ...prev, [code]: true }));
+  };
 
   // Faculty Change Request State
   const [addTaSelection, setAddTaSelection] = useState({}); // { [course_code]: roll_no }
@@ -60,6 +67,9 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
         ...prev,
         [courseCode]: { type: "success", msg: res.message || "Request submitted successfully to Admin." },
       }));
+
+      // Switch to submitted tab so faculty sees their new request
+      setCourseActiveTabs((prev) => ({ ...prev, [courseCode]: "submitted" }));
 
       // Reset form fields
       if (requestType === "ADD") {
@@ -280,326 +290,444 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                       (r) => r.course_code === c.course_code
                     );
 
+                    const activeTab = getCourseTab(c.course_code);
+
                     return (
                       <div key={c.course_code} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow">
-                        {/* Course Header */}
-                        <div
-                          onClick={() => toggleAllocCourse(c.course_code)}
-                          className="flex cursor-pointer items-start justify-between gap-3 border-b border-slate-100 bg-slate-50/60 p-4 sm:p-5 hover:bg-slate-100/60 transition select-none"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-mono text-base font-bold text-indigo-700">{c.course_code}</span>
-                              <h3 className="font-semibold text-slate-900">{c.course_name}</h3>
-                              <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
-                                {c.tas.length} TA{c.tas.length !== 1 ? "s" : ""} Assigned
-                              </span>
-                            </div>
-                            {c.co_instructors?.length > 0 && (
-                              <p className="mt-1 text-xs text-slate-500">
-                                <span className="font-medium text-slate-700">Co-instructors:</span>{" "}
-                                {c.co_instructors.join(", ")}
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-xs font-medium text-slate-400 hidden sm:inline">
-                              {isAllocOpen ? "Collapse" : "View TAs & Manage"}
-                            </span>
-                            <button
-                              type="button"
-                              className="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition"
-                              aria-label={isAllocOpen ? "Collapse" : "Expand"}
+                        {/* Course Header with 3 Mode Switch Tabs */}
+                        <div className="border-b border-slate-100 bg-slate-50/70 p-4 sm:p-5 transition">
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                            {/* Left: Course Identity (Clicking toggles collapse) */}
+                            <div
+                              onClick={() => toggleAllocCourse(c.course_code)}
+                              className="min-w-0 flex-1 cursor-pointer select-none"
                             >
-                              <ChevronDown
-                                size={18}
-                                className={`transition-transform duration-200 ${isAllocOpen ? "rotate-180" : ""}`}
-                              />
-                            </button>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-base font-bold text-indigo-700">{c.course_code}</span>
+                                <h3 className="font-semibold text-slate-900">{c.course_name}</h3>
+                                <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-200">
+                                  {c.tas.length} TA{c.tas.length !== 1 ? "s" : ""} Assigned
+                                </span>
+                              </div>
+                              {c.co_instructors?.length > 0 && (
+                                <p className="mt-1 text-xs text-slate-500">
+                                  <span className="font-medium text-slate-700">Co-instructors:</span>{" "}
+                                  {c.co_instructors.join(", ")}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Right: 3 Mode Switch Tabs + Collapse */}
+                            <div className="flex items-center gap-2 flex-wrap shrink-0">
+                              <div className="inline-flex items-center rounded-xl bg-slate-200/80 p-1 text-xs">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCourseTab(c.course_code, "assigned");
+                                  }}
+                                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition ${
+                                    activeTab === "assigned"
+                                      ? "bg-white text-indigo-700 shadow-xs font-semibold"
+                                      : "text-slate-600 hover:text-slate-900"
+                                  }`}
+                                >
+                                  <Users size={13} />
+                                  <span>Assigned TAs</span>
+                                  <span className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
+                                    activeTab === "assigned" ? "bg-indigo-100 text-indigo-700" : "bg-slate-300/80 text-slate-700"
+                                  }`}>
+                                    {c.tas.length}
+                                  </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCourseTab(c.course_code, "request");
+                                  }}
+                                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition ${
+                                    activeTab === "request"
+                                      ? "bg-white text-indigo-700 shadow-xs font-semibold"
+                                      : "text-slate-600 hover:text-slate-900"
+                                  }`}
+                                >
+                                  <Plus size={13} />
+                                  <span>Request TA</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCourseTab(c.course_code, "submitted");
+                                  }}
+                                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition ${
+                                    activeTab === "submitted"
+                                      ? "bg-white text-indigo-700 shadow-xs font-semibold"
+                                      : "text-slate-600 hover:text-slate-900"
+                                  }`}
+                                >
+                                  <Clock size={13} />
+                                  <span>Submitted Requests</span>
+                                  {courseRequests.length > 0 && (
+                                    <span className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
+                                      activeTab === "submitted" ? "bg-amber-200 text-amber-900" : "bg-amber-100 text-amber-800"
+                                    }`}>
+                                      {courseRequests.length}
+                                    </span>
+                                  )}
+                                </button>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => toggleAllocCourse(c.course_code)}
+                                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition"
+                                title={isAllocOpen ? "Collapse" : "Expand"}
+                              >
+                                <ChevronDown
+                                  size={18}
+                                  className={`transition-transform duration-200 ${isAllocOpen ? "rotate-180" : ""}`}
+                                />
+                              </button>
+                            </div>
                           </div>
                         </div>
 
                         {isAllocOpen && (
-                          <div className="p-4 sm:p-5 space-y-6 animate-in fade-in duration-200">
-                            {/* Assigned TAs cards */}
-                            <div>
-                              <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                Assigned Teaching Assistants
-                              </h4>
-                              {c.tas.length === 0 ? (
-                                <p className="text-sm text-slate-400">No TAs were allocated to this course.</p>
-                              ) : (
-                                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                                  {c.tas.map((ta) => (
-                                    <div
-                                      key={ta.roll_no}
-                                      className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 transition hover:bg-slate-50"
-                                    >
-                                      <div className="flex items-start justify-between gap-2">
-                                        <div>
-                                          <p className="font-mono text-xs font-bold text-slate-900">{ta.roll_no}</p>
-                                          <p className="font-medium text-slate-800">{ta.name}</p>
-                                        </div>
-                                        <span className="rounded-md bg-white px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                                          {ta.program || "Student"}
-                                        </span>
-                                      </div>
+                          <div className="p-4 sm:p-5 animate-in fade-in duration-200">
+                            {/* TAB 1: ASSIGNED TEACHING ASSISTANTS */}
+                            {activeTab === "assigned" && (
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                                    Assigned Teaching Assistants ({c.tas.length})
+                                  </h4>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCourseTab(c.course_code, "request")}
+                                    className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold inline-flex items-center gap-1 hover:underline"
+                                  >
+                                    <Plus size={13} /> Request TA Changes
+                                  </button>
+                                </div>
 
-                                      <div className="mt-3 space-y-1 text-xs text-slate-500">
-                                        {ta.email && (
-                                          <div className="flex items-center gap-1.5 truncate">
-                                            <Mail size={12} className="shrink-0 text-slate-400" />
-                                            <a href={`mailto:${ta.email}`} className="truncate hover:text-indigo-600">
-                                              {ta.email}
-                                            </a>
+                                {c.tas.length === 0 ? (
+                                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/50 p-8 text-center">
+                                    <Users size={32} className="mx-auto text-slate-300 mb-2" />
+                                    <p className="text-sm font-medium text-slate-600">No TAs currently assigned to this course.</p>
+                                    <p className="text-xs text-slate-400 mt-1">Need teaching assistants for your classes or labs?</p>
+                                    <button
+                                      type="button"
+                                      onClick={() => setCourseTab(c.course_code, "request")}
+                                      className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2 transition"
+                                    >
+                                      <Plus size={13} /> Send Request to Admin to Add a TA
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                    {c.tas.map((ta) => (
+                                      <div
+                                        key={ta.roll_no}
+                                        className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 transition hover:bg-slate-50 shadow-2xs"
+                                      >
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div>
+                                            <p className="font-mono text-xs font-bold text-slate-900">{ta.roll_no}</p>
+                                            <p className="font-medium text-slate-800">{ta.name}</p>
                                           </div>
-                                        )}
-                                        {ta.thesis_supervisor && (
-                                          <div className="flex items-center gap-1.5 truncate">
-                                            <GraduationCap size={12} className="shrink-0 text-slate-400" />
-                                            <span className="truncate">Guide: {ta.thesis_supervisor}</span>
-                                          </div>
-                                        )}
+                                          <span className="rounded-md bg-white px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                                            {ta.program || "Student"}
+                                          </span>
+                                        </div>
+
+                                        <div className="mt-3 space-y-1 text-xs text-slate-500">
+                                          {ta.email && (
+                                            <div className="flex items-center gap-1.5 truncate">
+                                              <Mail size={12} className="shrink-0 text-slate-400" />
+                                              <a href={`mailto:${ta.email}`} className="truncate hover:text-indigo-600">
+                                                {ta.email}
+                                              </a>
+                                            </div>
+                                          )}
+                                          {ta.thesis_supervisor && (
+                                            <div className="flex items-center gap-1.5 truncate">
+                                              <GraduationCap size={12} className="shrink-0 text-slate-400" />
+                                              <span className="truncate">Guide: {ta.thesis_supervisor}</span>
+                                            </div>
+                                          )}
+                                        </div>
                                       </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* TAB 2: REQUEST TA CHANGES */}
+                            {activeTab === "request" && (
+                              <div className="space-y-4">
+                                <div>
+                                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                                    Request TA Changes for {c.course_code}
+                                  </h4>
+                                  <p className="text-xs text-slate-500 mt-0.5">
+                                    Submit a request to Admin to add or remove a TA. Admin will review and update the allocations.
+                                  </p>
+                                </div>
+
+                                {/* Feedback banner */}
+                                {reqFeedback[c.course_code] && (
+                                  <div className={`p-3 rounded-xl text-xs font-medium border ${
+                                    reqFeedback[c.course_code].type === "success"
+                                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                      : "bg-rose-50 text-rose-800 border-rose-200"
+                                  }`}>
+                                    {reqFeedback[c.course_code].msg}
+                                  </div>
+                                )}
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                  {/* Form A: Request to ADD TA (from dropdown of all TAs) */}
+                                  <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3 shadow-2xs">
+                                    <div className="flex items-center gap-2 text-xs font-bold text-emerald-700">
+                                      <Plus size={15} />
+                                      <span>Request to ADD a TA</span>
                                     </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
 
-                            {/* Requirement 2: Request TA Changes Section */}
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5 space-y-4">
-                              <div>
-                                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                                  Request TA Changes for {c.course_code}
-                                </h4>
-                                <p className="text-xs text-slate-500 mt-0.5">
-                                  Submit a request to Admin to add or remove a TA. Admin will review and update the allocations.
-                                </p>
-                              </div>
+                                    <div>
+                                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                                        Select TA (All TAs in Department):
+                                      </label>
+                                      <select
+                                        value={addTaSelection[c.course_code] || ""}
+                                        onChange={(e) =>
+                                          setAddTaSelection((prev) => ({ ...prev, [c.course_code]: e.target.value }))
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 font-medium"
+                                      >
+                                        <option value="">— Choose a TA to Add —</option>
 
-                              {/* Feedback banner */}
-                              {reqFeedback[c.course_code] && (
-                                <div className={`p-3 rounded-xl text-xs font-medium border ${
-                                  reqFeedback[c.course_code].type === "success"
-                                    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                                    : "bg-rose-50 text-rose-800 border-rose-200"
-                                }`}>
-                                  {reqFeedback[c.course_code].msg}
-                                </div>
-                              )}
+                                        {/* Free TAs Optgroup (Green) */}
+                                        {allTAs.filter((t) => !t.assigned_to).length > 0 && (
+                                          <optgroup
+                                            label={`🟢 Available / Free TAs (${allTAs.filter((t) => !t.assigned_to).length})`}
+                                            style={{ fontWeight: "bold", color: "#047857" }}
+                                          >
+                                            {allTAs
+                                              .filter((t) => !t.assigned_to)
+                                              .map((t) => (
+                                                <option
+                                                  key={t.roll_no}
+                                                  value={t.roll_no}
+                                                  style={{ color: "#065f46", fontWeight: "normal" }}
+                                                >
+                                                  🟢 [FREE] {t.roll_no} — {t.name} ({t.program || "Student"})
+                                                </option>
+                                              ))}
+                                          </optgroup>
+                                        )}
 
-                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                {/* Form A: Request to ADD TA (from dropdown of all TAs) */}
-                                <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-                                  <div className="flex items-center gap-2 text-xs font-bold text-emerald-700">
-                                    <Plus size={15} />
-                                    <span>Request to ADD a TA</span>
-                                  </div>
+                                        {/* Busy TAs Optgroup (Orange / Amber) */}
+                                        {allTAs.filter((t) => Boolean(t.assigned_to)).length > 0 && (
+                                          <optgroup
+                                            label={`🟠 Busy / Assigned TAs (${allTAs.filter((t) => Boolean(t.assigned_to)).length})`}
+                                            style={{ fontWeight: "bold", color: "#b45309" }}
+                                          >
+                                            {allTAs
+                                              .filter((t) => Boolean(t.assigned_to))
+                                              .map((t) => (
+                                                <option
+                                                  key={t.roll_no}
+                                                  value={t.roll_no}
+                                                  style={{ color: "#92400e", fontWeight: "normal" }}
+                                                >
+                                                  🟠 [BUSY: {t.assigned_to.course_code}] {t.roll_no} — {t.name} ({t.program || "Student"})
+                                                </option>
+                                              ))}
+                                          </optgroup>
+                                        )}
+                                      </select>
 
-                                  <div>
-                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                                      Select TA (All TAs in Department):
-                                    </label>
-                                    <select
-                                      value={addTaSelection[c.course_code] || ""}
-                                      onChange={(e) =>
-                                        setAddTaSelection((prev) => ({ ...prev, [c.course_code]: e.target.value }))
-                                      }
-                                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 font-medium"
-                                    >
-                                      <option value="">— Choose a TA to Add —</option>
+                                      {/* Live Selected TA Status Badge Card */}
+                                      {(() => {
+                                        const selRoll = addTaSelection[c.course_code];
+                                        const selTa = allTAs.find((t) => t.roll_no === selRoll);
+                                        if (!selTa) return null;
 
-                                      {/* Free TAs Optgroup (Green) */}
-                                      {allTAs.filter((t) => !t.assigned_to).length > 0 && (
-                                        <optgroup
-                                          label={`🟢 Available / Free TAs (${allTAs.filter((t) => !t.assigned_to).length})`}
-                                          style={{ fontWeight: "bold", color: "#047857" }}
-                                        >
-                                          {allTAs
-                                            .filter((t) => !t.assigned_to)
-                                            .map((t) => (
-                                              <option
-                                                key={t.roll_no}
-                                                value={t.roll_no}
-                                                style={{ color: "#065f46", fontWeight: "normal" }}
-                                              >
-                                                🟢 [FREE] {t.roll_no} — {t.name} ({t.program || "Student"})
-                                              </option>
-                                            ))}
-                                        </optgroup>
-                                      )}
-
-                                      {/* Busy TAs Optgroup (Orange / Amber) */}
-                                      {allTAs.filter((t) => Boolean(t.assigned_to)).length > 0 && (
-                                        <optgroup
-                                          label={`🟠 Busy / Assigned TAs (${allTAs.filter((t) => Boolean(t.assigned_to)).length})`}
-                                          style={{ fontWeight: "bold", color: "#b45309" }}
-                                        >
-                                          {allTAs
-                                            .filter((t) => Boolean(t.assigned_to))
-                                            .map((t) => (
-                                              <option
-                                                key={t.roll_no}
-                                                value={t.roll_no}
-                                                style={{ color: "#92400e", fontWeight: "normal" }}
-                                              >
-                                                🟠 [BUSY: {t.assigned_to.course_code}] {t.roll_no} — {t.name} ({t.program || "Student"})
-                                              </option>
-                                            ))}
-                                        </optgroup>
-                                      )}
-                                    </select>
-
-                                    {/* Live Selected TA Status Badge Card */}
-                                    {(() => {
-                                      const selRoll = addTaSelection[c.course_code];
-                                      const selTa = allTAs.find((t) => t.roll_no === selRoll);
-                                      if (!selTa) return null;
-
-                                      return selTa.assigned_to ? (
-                                        <div className="mt-2.5 rounded-xl border border-amber-300 bg-amber-50/90 p-2.5 text-xs text-amber-950 animate-fadeIn">
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="rounded-md bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-900">
-                                              🟠 Status: Busy / Assigned
-                                            </span>
-                                            <span className="font-mono font-bold text-slate-900">{selTa.roll_no}</span>
+                                        return selTa.assigned_to ? (
+                                          <div className="mt-2.5 rounded-xl border border-amber-300 bg-amber-50/90 p-2.5 text-xs text-amber-950 animate-fadeIn">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="rounded-md bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-900">
+                                                🟠 Status: Busy / Assigned
+                                              </span>
+                                              <span className="font-mono font-bold text-slate-900">{selTa.roll_no}</span>
+                                            </div>
+                                            <p className="mt-1 text-[11px] text-slate-800">
+                                              Currently allocated to <strong className="font-mono text-indigo-700">{selTa.assigned_to.course_code}</strong> ({selTa.assigned_to.course_name}).
+                                            </p>
+                                            <p className="text-[11px] text-amber-800 mt-0.5 font-medium">
+                                              ℹ️ If Admin approves, they will be transferred from {selTa.assigned_to.course_code} to {c.course_code}.
+                                            </p>
                                           </div>
-                                          <p className="mt-1 text-[11px] text-slate-800">
-                                            Currently allocated to <strong className="font-mono text-indigo-700">{selTa.assigned_to.course_code}</strong> ({selTa.assigned_to.course_name}).
-                                          </p>
-                                          <p className="text-[11px] text-amber-800 mt-0.5 font-medium">
-                                            ℹ️ If Admin approves, they will be transferred from {selTa.assigned_to.course_code} to {c.course_code}.
-                                          </p>
-                                        </div>
-                                      ) : (
-                                        <div className="mt-2.5 rounded-xl border border-emerald-200 bg-emerald-50/90 p-2.5 text-xs text-emerald-950 animate-fadeIn">
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="rounded-md bg-emerald-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-900">
-                                              🟢 Status: Free / Available
-                                            </span>
-                                            <span className="font-mono font-bold text-slate-900">{selTa.roll_no}</span>
+                                        ) : (
+                                          <div className="mt-2.5 rounded-xl border border-emerald-200 bg-emerald-50/90 p-2.5 text-xs text-emerald-950 animate-fadeIn">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="rounded-md bg-emerald-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-900">
+                                                🟢 Status: Free / Available
+                                              </span>
+                                              <span className="font-mono font-bold text-slate-900">{selTa.roll_no}</span>
+                                            </div>
+                                            <p className="mt-1 text-[11px] text-emerald-800">
+                                              This TA is currently unassigned and available for immediate allocation.
+                                            </p>
                                           </div>
-                                          <p className="mt-1 text-[11px] text-emerald-800">
-                                            This TA is currently unassigned and available for immediate allocation.
-                                          </p>
-                                        </div>
-                                      );
-                                    })()}
-                                  </div>
+                                        );
+                                      })()}
+                                    </div>
 
-                                  <div>
-                                    <input
-                                      type="text"
-                                      placeholder="Reason / Note for admin (optional)"
-                                      value={addTaReason[c.course_code] || ""}
-                                      onChange={(e) =>
-                                        setAddTaReason((prev) => ({ ...prev, [c.course_code]: e.target.value }))
-                                      }
-                                      className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
-                                    />
-                                  </div>
+                                    <div>
+                                      <input
+                                        type="text"
+                                        placeholder="Reason / Note for admin (optional)"
+                                        value={addTaReason[c.course_code] || ""}
+                                        onChange={(e) =>
+                                          setAddTaReason((prev) => ({ ...prev, [c.course_code]: e.target.value }))
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                                      />
+                                    </div>
 
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSubmitChangeRequest(c.course_code, "ADD")}
-                                    disabled={submittingReq[c.course_code] || !addTaSelection[c.course_code]}
-                                    className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-semibold text-xs py-2 shadow-xs transition active:scale-[0.98]"
-                                  >
-                                    {submittingReq[c.course_code] ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-                                    <span>Send Request to Add TA</span>
-                                  </button>
-                                </div>
-
-                                {/* Form B: Request to DELETE TA (from dropdown of TAs in this course) */}
-                                <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-                                  <div className="flex items-center gap-2 text-xs font-bold text-rose-700">
-                                    <Trash2 size={15} />
-                                    <span>Request to REMOVE a TA</span>
-                                  </div>
-
-                                  <div>
-                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                                      Select TA from {c.course_code}:
-                                    </label>
-                                    <select
-                                      value={deleteTaSelection[c.course_code] || ""}
-                                      onChange={(e) =>
-                                        setDeleteTaSelection((prev) => ({ ...prev, [c.course_code]: e.target.value }))
-                                      }
-                                      disabled={c.tas.length === 0}
-                                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 disabled:bg-slate-50"
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSubmitChangeRequest(c.course_code, "ADD")}
+                                      disabled={submittingReq[c.course_code] || !addTaSelection[c.course_code]}
+                                      className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-semibold text-xs py-2 shadow-xs transition active:scale-[0.98]"
                                     >
-                                      <option value="">
-                                        {c.tas.length === 0 ? "— No TAs assigned to this course —" : "— Choose TA to Remove —"}
-                                      </option>
-                                      {c.tas.map((t) => (
-                                        <option key={t.roll_no} value={t.roll_no}>
-                                          {t.roll_no} — {t.name} ({t.program || "Student"})
+                                      {submittingReq[c.course_code] ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+                                      <span>Send Request to Add TA</span>
+                                    </button>
+                                  </div>
+
+                                  {/* Form B: Request to DELETE TA (from dropdown of TAs in this course) */}
+                                  <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3 shadow-2xs">
+                                    <div className="flex items-center gap-2 text-xs font-bold text-rose-700">
+                                      <Trash2 size={15} />
+                                      <span>Request to REMOVE a TA</span>
+                                    </div>
+
+                                    <div>
+                                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                                        Select TA from {c.course_code}:
+                                      </label>
+                                      <select
+                                        value={deleteTaSelection[c.course_code] || ""}
+                                        onChange={(e) =>
+                                          setDeleteTaSelection((prev) => ({ ...prev, [c.course_code]: e.target.value }))
+                                        }
+                                        disabled={c.tas.length === 0}
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 disabled:bg-slate-50"
+                                      >
+                                        <option value="">
+                                          {c.tas.length === 0 ? "— No TAs assigned to this course —" : "— Choose TA to Remove —"}
                                         </option>
-                                      ))}
-                                    </select>
-                                  </div>
+                                        {c.tas.map((t) => (
+                                          <option key={t.roll_no} value={t.roll_no}>
+                                            {t.roll_no} — {t.name} ({t.program || "Student"})
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
 
-                                  <div>
-                                    <input
-                                      type="text"
-                                      placeholder="Reason / Note for removal (optional)"
-                                      value={deleteTaReason[c.course_code] || ""}
-                                      onChange={(e) =>
-                                        setDeleteTaReason((prev) => ({ ...prev, [c.course_code]: e.target.value }))
-                                      }
-                                      className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
-                                    />
-                                  </div>
+                                    <div>
+                                      <input
+                                        type="text"
+                                        placeholder="Reason / Note for removal (optional)"
+                                        value={deleteTaReason[c.course_code] || ""}
+                                        onChange={(e) =>
+                                          setDeleteTaReason((prev) => ({ ...prev, [c.course_code]: e.target.value }))
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-xs outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
+                                      />
+                                    </div>
 
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSubmitChangeRequest(c.course_code, "DELETE")}
-                                    disabled={submittingReq[c.course_code] || !deleteTaSelection[c.course_code]}
-                                    className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-rose-200 hover:bg-rose-50 disabled:opacity-40 text-rose-700 font-semibold text-xs py-2 transition active:scale-[0.98]"
-                                  >
-                                    {submittingReq[c.course_code] ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                                    <span>Send Request to Remove TA</span>
-                                  </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSubmitChangeRequest(c.course_code, "DELETE")}
+                                      disabled={submittingReq[c.course_code] || !deleteTaSelection[c.course_code]}
+                                      className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-rose-200 hover:bg-rose-50 disabled:opacity-40 text-rose-700 font-semibold text-xs py-2 transition active:scale-[0.98]"
+                                    >
+                                      {submittingReq[c.course_code] ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                                      <span>Send Request to Remove TA</span>
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
+                            )}
 
-                              {/* Recent Requests for this course */}
-                              {courseRequests.length > 0 && (
-                                <div className="mt-4 pt-3 border-t border-slate-200/80">
-                                  <h5 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                            {/* TAB 3: SUBMITTED REQUESTS */}
+                            {activeTab === "submitted" && (
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
                                     Your Submitted Requests for {c.course_code}
-                                  </h5>
+                                  </h4>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCourseTab(c.course_code, "request")}
+                                    className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold inline-flex items-center gap-1 hover:underline"
+                                  >
+                                    <Plus size={13} /> New Request
+                                  </button>
+                                </div>
+
+                                {courseRequests.length === 0 ? (
+                                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center text-xs text-slate-500">
+                                    <Clock size={28} className="mx-auto text-slate-300 mb-2" />
+                                    <p className="font-semibold text-slate-700 text-sm">No change requests submitted yet for {c.course_code}.</p>
+                                    <p className="text-slate-400 mt-1 max-w-sm mx-auto">
+                                      Want to add another TA or replace an assigned TA? Switch to the Request TA tab to submit a proposal to the admin.
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => setCourseTab(c.course_code, "request")}
+                                      className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs px-3.5 py-1.5 transition"
+                                    >
+                                      <Plus size={13} /> Request TA Changes
+                                    </button>
+                                  </div>
+                                ) : (
                                   <div className="space-y-2">
                                     {courseRequests.map((r) => (
-                                      <div key={r.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-xl border bg-white text-xs">
-                                        <div className="flex items-center gap-2">
+                                      <div key={r.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl border border-slate-200 bg-white text-xs shadow-2xs">
+                                        <div className="flex items-center gap-2 flex-wrap">
                                           <span className={`px-2 py-0.5 rounded font-bold uppercase text-[10px] ${
                                             r.request_type === "ADD" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
                                           }`}>
                                             {r.request_type}
                                           </span>
                                           <span className="font-mono font-semibold">{r.ta_roll_no}</span>
-                                          <span className="text-slate-600">({r.ta_name})</span>
-                                          {r.reason && <span className="text-slate-400 italic">"{r.reason}"</span>}
+                                          <span className="text-slate-700">({r.ta_name})</span>
+                                          {r.reason && <span className="text-slate-500 italic">"{r.reason}"</span>}
                                         </div>
 
                                         <div className="flex items-center gap-2">
                                           {r.status === "pending" && (
-                                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
                                               <Clock size={11} /> Pending Review
                                             </span>
                                           )}
                                           {r.status === "approved" && (
-                                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
                                               <CheckCircle2 size={11} /> Approved
                                             </span>
                                           )}
                                           {r.status === "rejected" && (
                                             <div className="flex items-center gap-1.5">
-                                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 ring-1 ring-rose-200">
+                                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-semibold text-rose-700 ring-1 ring-rose-200">
                                                 <XCircle size={11} /> Rejected
                                               </span>
                                               {r.admin_remark && (
@@ -613,9 +741,9 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                                       </div>
                                     ))}
                                   </div>
-                                </div>
-                              )}
-                            </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

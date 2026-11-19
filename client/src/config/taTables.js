@@ -58,7 +58,7 @@ export const DATA_SOURCES = [
     acceptCsv: ".csv,text/csv",
     icon: "users",
     blurb:
-      "Roster of all eligible teaching assistants. PhD scholars have no coursework constraints, while M.Tech TAs have class schedules to avoid.",
+      "Roster of all eligible teaching assistants (M.Tech and PhD scholars). Enrolled coursework is verified by the solver to prevent scheduling conflicts.",
     columns: ["roll_no", "name", "program", "thesis_supervisor", "email"],
     required: ["roll_no", "name"],
     sample: [
@@ -66,7 +66,7 @@ export const DATA_SOURCES = [
       ["P24CS007", "Vikrant Sahu", "PhD", "Dr. Gagan Raj Gupta", ""],
     ],
     notes: [
-      "program starting with 'P' is read as PhD -- those TAs count as free in every slot.",
+      "Any enrolled coursework in Course Registration is checked to avoid timetable clashes.",
       "thesis_supervisor is matched to course instructors by name, so spelling variants are tolerated.",
     ],
   },
@@ -78,7 +78,7 @@ export const DATA_SOURCES = [
     acceptCsv: ".csv,text/csv",
     icon: "registration",
     blurb:
-      "Course enrollment records for M.Tech students. Used by the solver to determine student class hours and avoid scheduling conflicts.",
+      "Course enrollment records for TAs (both M.Tech and PhD students). Used by the solver to determine student class hours and avoid scheduling conflicts.",
     columns: ["student_roll_no", "course_code"],
     required: ["student_roll_no", "course_code"],
     sample: [
@@ -88,7 +88,7 @@ export const DATA_SOURCES = [
     ],
     notes: [
       "One row per student per course.",
-      "Only M.Tech registrations matter: they are what make a TA unavailable in a slot.",
+      "Registrations for all TAs (both M.Tech and PhD) are used to prevent assigning them to conflicting slots.",
     ],
   },
 ];
