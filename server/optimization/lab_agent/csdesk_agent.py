@@ -45,9 +45,12 @@ class SimpleWebSocket:
             self.sock = raw_sock
 
         key = base64.b64encode(os.urandom(16)).decode('ascii')
+        host_header = self.host if self.port in (80, 443) else f"{self.host}:{self.port}"
+        origin_proto = "https" if self.scheme in ('wss', 'https') else "http"
         headers = [
             f"GET {self.path} HTTP/1.1",
-            f"Host: {self.host}:{self.port}",
+            f"Host: {host_header}",
+            f"Origin: {origin_proto}://{host_header}",
             "Upgrade: websocket",
             "Connection: Upgrade",
             f"Sec-WebSocket-Key: {key}",
