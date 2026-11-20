@@ -20,6 +20,12 @@ async function authHeaders() {
   if (simulatedUser) {
     headers["X-Simulate-User"] = simulatedUser;
   }
+
+  // Selected academic semester: if set in localStorage, forward as X-Semester-Id
+  const selectedSemester = localStorage.getItem("csdesk_selected_semester");
+  if (selectedSemester) {
+    headers["X-Semester-Id"] = selectedSemester;
+  }
   return headers;
 }
 

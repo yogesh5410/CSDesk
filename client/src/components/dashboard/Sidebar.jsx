@@ -35,6 +35,14 @@ export default function Sidebar({
   const facultyUsers = availableUsers.filter((u) => u.role === "faculty");
   const taUsers = availableUsers.filter((u) => u.role === "ta");
 
+  useEffect(() => {
+    if (role === "faculty" && facultyUsers.length > 0 && !simulatedUser) {
+      switchSimulatedEmail(facultyUsers[0].email);
+    } else if (role === "ta" && taUsers.length > 0 && !simulatedUser) {
+      switchSimulatedEmail(taUsers[0].email);
+    }
+  }, [role, facultyUsers, taUsers, simulatedUser, switchSimulatedEmail]);
+
   function handleRoleChange(newRole) {
     if (newRole === "faculty" && facultyUsers.length > 0) {
       switchRole(newRole, facultyUsers[0].email);

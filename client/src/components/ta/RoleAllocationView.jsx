@@ -2,11 +2,18 @@ import { useState } from "react";
 import {
   BookOpen, Users, Mail, GraduationCap, ChevronDown, CheckCircle2,
   FileText, Filter, Plus, Trash2, Clock, XCircle, AlertTriangle, MessageSquare, Loader2,
+  ClipboardCheck, Info,
 } from "lucide-react";
 import FacultyRequirementsSection from "./FacultyRequirementsSection";
 import { apiPost } from "../../lib/api";
 
-export default function RoleAllocationView({ roleView, facultyReqData, onRefresh }) {
+export default function RoleAllocationView({
+  roleView,
+  facultyReqData,
+  onRefresh,
+  facultyUsers = [],
+  onSwitchFaculty,
+}) {
   const [expandedCourse, setExpandedCourse] = useState(null);
   const [selectedCourse, setSelectedCourse] = useState("all");
   const [expandedAllocCourses, setExpandedAllocCourses] = useState({});
@@ -119,6 +126,9 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
     if (!rollNo) return;
 
     const taObj = allTAs.find((t) => t.roll_no === rollNo);
+    const courseObj = (roleView?.courses || []).find((c) => c.course_code === courseCode);
+    const clashCourse = courseObj?.ta_clashes?.[rollNo] || roleView?.course_clashes?.[courseCode]?.[rollNo];
+
     if (taObj?.assigned_to && taObj.assigned_to.course_code !== courseCode) {
       // Busy TA assigned to another course -> Show confirmation popup
       setReallocWarning({
@@ -126,7 +136,14 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
         taRoll: rollNo,
         taName: taObj.name || rollNo,
         existingCourse: taObj.assigned_to.course_code,
+        clashCourse,
       });
+    } else if (clashCourse) {
+      // Free TA, but has a timetable clash with this course!
+      const ok = confirm(
+        `⚠️ Timetable Conflict Warning:\n\nTA ${taObj?.name || rollNo} (${rollNo}) is enrolled in ${clashCourse}, which overlaps with ${courseCode}'s class/lab hours.\n\nAre you sure you want to assign them anyway?`
+      );
+      if (ok) executeAdminAdd(courseCode, rollNo);
     } else {
       executeAdminAdd(courseCode, rollNo);
     }
@@ -247,9 +264,27 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                       Faculty Portal
                     </span>
                     <h2 className="mt-1 text-lg font-bold text-slate-900">Your Assigned Courses &amp; TAs</h2>
-                    <p className="text-sm text-slate-500">
-                      Logged in as <span className="font-medium text-slate-700">{roleView.user?.name}</span> ({roleView.user?.email})
-                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+                      <span>
+                        Logged in as <span className="font-semibold text-slate-800">{roleView?.user?.name}</span> ({roleView?.user?.email})
+                      </span>
+                      {facultyUsers?.length > 0 && (
+                        <div className="inline-flex items-center gap-1.5 ml-1 bg-indigo-50/80 border border-indigo-200/80 rounded-lg px-2.5 py-1 text-xs">
+                          <span className="font-semibold text-indigo-900">Switch Faculty:</span>
+                          <select
+                            value={roleView?.user?.email || ""}
+                            onChange={(e) => onSwitchFaculty?.(e.target.value)}
+                            className="rounded-md border border-indigo-300 bg-white px-2 py-0.5 text-xs font-semibold text-slate-800 outline-none"
+                          >
+                            {facultyUsers.map((f) => (
+                              <option key={f.email} value={f.email}>
+                                {f.name} ({f.email})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -339,6 +374,29 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                                   }`}>
                                     {c.tas.length}
                                   </span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCourseTab(c.course_code, "demanded");
+                                  }}
+                                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition ${
+                                    activeTab === "demanded"
+                                      ? "bg-white text-indigo-700 shadow-xs font-semibold"
+                                      : "text-slate-600 hover:text-slate-900"
+                                  }`}
+                                >
+                                  <ClipboardCheck size={13} />
+                                  <span>Demanded TAs</span>
+                                  {c.demanded_tas?.tas_required !== undefined && (
+                                    <span className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
+                                      activeTab === "demanded" ? "bg-indigo-100 text-indigo-700" : "bg-slate-300/80 text-slate-700"
+                                    }`}>
+                                      {c.demanded_tas.tas_required}
+                                    </span>
+                                  )}
                                 </button>
 
                                 <button
@@ -467,6 +525,123 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                               </div>
                             )}
 
+                            {/* TAB: DEMANDED TEACHING ASSISTANTS (FROM REQUIREMENT COLLECTION) */}
+                            {activeTab === "demanded" && (
+                              <div className="space-y-4">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+                                  <div>
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                                      <span>Initial Requirement Demand &amp; TA Preferences</span>
+                                    </h4>
+                                    <p className="text-[11px] text-slate-500 mt-0.5">
+                                      Teaching assistants requested and ranked during the requirement collection phase.
+                                    </p>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-1.5 text-xs text-indigo-900 font-medium">
+                                      Demanded: <strong className="font-bold text-indigo-700">{c.demanded_tas?.tas_required ?? "Not specified"}</strong>
+                                    </div>
+                                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 text-xs text-emerald-900 font-medium">
+                                      Assigned: <strong className="font-bold text-emerald-700">{c.tas.length}</strong>
+                                    </div>
+                                    {c.demanded_tas?.tas_required !== undefined && (
+                                      <span className={`rounded-xl px-2.5 py-1 text-xs font-semibold ${
+                                        c.tas.length >= c.demanded_tas.tas_required
+                                          ? "bg-emerald-100 text-emerald-800"
+                                          : "bg-amber-100 text-amber-800"
+                                      }`}>
+                                        {c.tas.length >= c.demanded_tas.tas_required
+                                          ? "✓ Demand Fulfilled"
+                                          : `⚠️ Shortage: ${c.demanded_tas.tas_required - c.tas.length} TA(s)`}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* List of Preferred Candidates */}
+                                {c.demanded_tas?.preferred_tas?.length > 0 ? (
+                                  <div className="space-y-2.5">
+                                    <div className="text-[11px] font-semibold text-slate-600">
+                                      Preferred Candidate Rankings ({c.demanded_tas.preferred_tas.length} specified):
+                                    </div>
+                                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                      {c.demanded_tas.preferred_tas.map((pref) => {
+                                        const isAssignedHere = pref.assigned_to_this_course;
+                                        const isAssignedOther = !isAssignedHere && Boolean(pref.assigned_to);
+
+                                        return (
+                                          <div
+                                            key={pref.roll_no}
+                                            className={`rounded-2xl border p-3.5 transition shadow-2xs ${
+                                              isAssignedHere
+                                                ? "border-emerald-300 bg-emerald-50/40"
+                                                : isAssignedOther
+                                                ? "border-amber-200 bg-amber-50/30"
+                                                : "border-slate-200 bg-white"
+                                            }`}
+                                          >
+                                            <div className="flex items-start justify-between gap-2">
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="rounded-md bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5">
+                                                  Rank #{pref.rank}
+                                                </span>
+                                                <span className="font-mono text-xs font-bold text-slate-900">
+                                                  {pref.roll_no}
+                                                </span>
+                                              </div>
+                                              <span className="rounded-md bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5">
+                                                {pref.program || "Student"}
+                                              </span>
+                                            </div>
+
+                                            <div className="mt-1.5 text-xs font-semibold text-slate-800">
+                                              {pref.name}
+                                            </div>
+
+                                            <div className="mt-1 text-[11px] text-slate-500">
+                                              <span>Guide: </span>
+                                              <span className="text-slate-700 font-medium">{pref.thesis_supervisor || "—"}</span>
+                                            </div>
+
+                                            {/* Status chip */}
+                                            <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                                              <span className="text-slate-400 font-medium">Outcome:</span>
+                                              {isAssignedHere ? (
+                                                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-0.5 font-bold text-emerald-800 text-[10px]">
+                                                  🟢 Allocated here
+                                                </span>
+                                              ) : isAssignedOther ? (
+                                                <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 font-bold text-amber-800 text-[10px]" title={`Allocated to ${pref.assigned_to.course_code}`}>
+                                                  🟠 Busy: {pref.assigned_to.course_code}
+                                                </span>
+                                              ) : (
+                                                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-600 text-[10px]">
+                                                  ⚪ Not Allocated
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ) : c.demanded_tas?.tas_required ? (
+                                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600 flex items-center gap-2">
+                                    <Info size={16} className="text-indigo-500 shrink-0" />
+                                    <span>
+                                      During requirement collection, <strong>{c.demanded_tas.tas_required} TA(s)</strong> were requested for this course without specific preferred student roll numbers.
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-500 italic flex items-center gap-2">
+                                    <Info size={16} className="text-slate-400 shrink-0" />
+                                    <span>No requirement submission was recorded for this course during the requirement collection phase.</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
                             {/* TAB 2: REQUEST TA CHANGES */}
                             {activeTab === "request" && (
                               <div className="space-y-4">
@@ -511,45 +686,70 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                                       >
                                         <option value="">— Choose a TA to Add —</option>
 
-                                        {/* Free TAs Optgroup (Green) */}
-                                        {allTAs.filter((t) => !t.assigned_to).length > 0 && (
-                                          <optgroup
-                                            label={`🟢 Available / Free TAs (${allTAs.filter((t) => !t.assigned_to).length})`}
-                                            style={{ fontWeight: "bold", color: "#047857" }}
-                                          >
-                                            {allTAs
-                                              .filter((t) => !t.assigned_to)
-                                              .map((t) => (
-                                                <option
-                                                  key={t.roll_no}
-                                                  value={t.roll_no}
-                                                  style={{ color: "#065f46", fontWeight: "normal" }}
-                                                >
-                                                  🟢 [FREE] {t.roll_no} — {t.name} ({t.program || "Student"})
-                                                </option>
-                                              ))}
-                                          </optgroup>
-                                        )}
+                                        {(() => {
+                                          const courseClashes = c.ta_clashes || roleView?.course_clashes?.[c.course_code] || {};
+                                          const trulyFree = allTAs.filter((t) => !t.assigned_to && !courseClashes[t.roll_no]);
+                                          const clashingFree = allTAs.filter((t) => !t.assigned_to && Boolean(courseClashes[t.roll_no]));
+                                          const busy = allTAs.filter((t) => Boolean(t.assigned_to));
 
-                                        {/* Busy TAs Optgroup (Orange / Amber) */}
-                                        {allTAs.filter((t) => Boolean(t.assigned_to)).length > 0 && (
-                                          <optgroup
-                                            label={`🟠 Busy / Assigned TAs (${allTAs.filter((t) => Boolean(t.assigned_to)).length})`}
-                                            style={{ fontWeight: "bold", color: "#b45309" }}
-                                          >
-                                            {allTAs
-                                              .filter((t) => Boolean(t.assigned_to))
-                                              .map((t) => (
-                                                <option
-                                                  key={t.roll_no}
-                                                  value={t.roll_no}
-                                                  style={{ color: "#92400e", fontWeight: "normal" }}
+                                          return (
+                                            <>
+                                              {/* 1. Truly Free TAs (Green) */}
+                                              {trulyFree.length > 0 && (
+                                                <optgroup
+                                                  label={`🟢 Available / Truly Free (${trulyFree.length})`}
+                                                  style={{ fontWeight: "bold", color: "#047857" }}
                                                 >
-                                                  🟠 [BUSY: {t.assigned_to.course_code}] {t.roll_no} — {t.name} ({t.program || "Student"})
-                                                </option>
-                                              ))}
-                                          </optgroup>
-                                        )}
+                                                  {trulyFree.map((t) => (
+                                                    <option
+                                                      key={t.roll_no}
+                                                      value={t.roll_no}
+                                                      style={{ color: "#065f46", fontWeight: "normal" }}
+                                                    >
+                                                      🟢 [FREE] {t.roll_no} — {t.name} ({t.program || "Student"})
+                                                    </option>
+                                                  ))}
+                                                </optgroup>
+                                              )}
+
+                                              {/* 2. Free TAs with Timetable Clash (Red) */}
+                                              {clashingFree.length > 0 && (
+                                                <optgroup
+                                                  label={`🔴 Timetable Clash with ${c.course_code} (${clashingFree.length})`}
+                                                  style={{ fontWeight: "bold", color: "#dc2626" }}
+                                                >
+                                                  {clashingFree.map((t) => (
+                                                    <option
+                                                      key={t.roll_no}
+                                                      value={t.roll_no}
+                                                      style={{ color: "#b91c1c", fontWeight: "normal" }}
+                                                    >
+                                                      🔴 [CLASH: {courseClashes[t.roll_no]}] {t.roll_no} — {t.name} ({t.program || "Student"})
+                                                    </option>
+                                                  ))}
+                                                </optgroup>
+                                              )}
+
+                                              {/* 3. Busy / Assigned TAs (Orange) */}
+                                              {busy.length > 0 && (
+                                                <optgroup
+                                                  label={`🟠 Busy / Assigned Elsewhere (${busy.length})`}
+                                                  style={{ fontWeight: "bold", color: "#b45309" }}
+                                                >
+                                                  {busy.map((t) => (
+                                                    <option
+                                                      key={t.roll_no}
+                                                      value={t.roll_no}
+                                                      style={{ color: "#92400e", fontWeight: "normal" }}
+                                                    >
+                                                      🟠 [BUSY: {t.assigned_to.course_code}{courseClashes[t.roll_no] ? ` | ⚠️ Clashes with ${c.course_code}` : ""}] {t.roll_no} — {t.name} ({t.program || "Student"})
+                                                    </option>
+                                                  ))}
+                                                </optgroup>
+                                              )}
+                                            </>
+                                          );
+                                        })()}
                                       </select>
 
                                       {/* Live Selected TA Status Badge Card */}
@@ -558,31 +758,62 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                                         const selTa = allTAs.find((t) => t.roll_no === selRoll);
                                         if (!selTa) return null;
 
-                                        return selTa.assigned_to ? (
-                                          <div className="mt-2.5 rounded-xl border border-amber-300 bg-amber-50/90 p-2.5 text-xs text-amber-950 animate-fadeIn">
-                                            <div className="flex items-center gap-1.5">
-                                              <span className="rounded-md bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-900">
-                                                🟠 Status: Busy / Assigned
-                                              </span>
-                                              <span className="font-mono font-bold text-slate-900">{selTa.roll_no}</span>
+                                        const courseClashes = c.ta_clashes || roleView?.course_clashes?.[c.course_code] || {};
+                                        const selClashCourse = courseClashes[selRoll];
+
+                                        if (selTa.assigned_to) {
+                                          return (
+                                            <div className="mt-2.5 rounded-xl border border-amber-300 bg-amber-50/90 p-2.5 text-xs text-amber-950 animate-fadeIn">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="rounded-md bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-900">
+                                                  🟠 Status: Busy / Assigned
+                                                </span>
+                                                <span className="font-mono font-bold text-slate-900">{selTa.roll_no}</span>
+                                                {selClashCourse && (
+                                                  <span className="rounded-md bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 border border-rose-200">
+                                                    ⚠️ Also Clashes with {selClashCourse}
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <p className="mt-1 text-[11px] text-slate-800">
+                                                Currently allocated to <strong className="font-mono text-indigo-700">{selTa.assigned_to.course_code}</strong> ({selTa.assigned_to.course_name}).
+                                              </p>
+                                              <p className="text-[11px] text-amber-800 mt-0.5 font-medium">
+                                                ℹ️ If Admin approves, they will be transferred from {selTa.assigned_to.course_code} to {c.course_code}.
+                                              </p>
                                             </div>
-                                            <p className="mt-1 text-[11px] text-slate-800">
-                                              Currently allocated to <strong className="font-mono text-indigo-700">{selTa.assigned_to.course_code}</strong> ({selTa.assigned_to.course_name}).
-                                            </p>
-                                            <p className="text-[11px] text-amber-800 mt-0.5 font-medium">
-                                              ℹ️ If Admin approves, they will be transferred from {selTa.assigned_to.course_code} to {c.course_code}.
-                                            </p>
-                                          </div>
-                                        ) : (
+                                          );
+                                        }
+
+                                        if (selClashCourse) {
+                                          return (
+                                            <div className="mt-2.5 rounded-xl border border-rose-300 bg-rose-50/90 p-2.5 text-xs text-rose-950 animate-fadeIn">
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="rounded-md bg-rose-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-900">
+                                                  🔴 Status: Timetable Slot Clash
+                                                </span>
+                                                <span className="font-mono font-bold text-slate-900">{selTa.roll_no}</span>
+                                              </div>
+                                              <p className="mt-1 text-[11px] text-rose-950">
+                                                ⚠️ <strong>Scheduling Conflict:</strong> This TA is enrolled in <strong className="font-mono text-rose-800">{selClashCourse}</strong>, which overlaps with {c.course_code}'s timetable.
+                                              </p>
+                                              <p className="text-[10px] text-rose-700 mt-0.5 font-medium">
+                                                Requesting this TA may be rejected by Admin due to class schedule conflict.
+                                              </p>
+                                            </div>
+                                          );
+                                        }
+
+                                        return (
                                           <div className="mt-2.5 rounded-xl border border-emerald-200 bg-emerald-50/90 p-2.5 text-xs text-emerald-950 animate-fadeIn">
                                             <div className="flex items-center gap-1.5">
                                               <span className="rounded-md bg-emerald-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-900">
-                                                🟢 Status: Free / Available
+                                                🟢 Status: Free &amp; Compatible
                                               </span>
                                               <span className="font-mono font-bold text-slate-900">{selTa.roll_no}</span>
                                             </div>
                                             <p className="mt-1 text-[11px] text-emerald-800">
-                                              This TA is currently unassigned and available for immediate allocation.
+                                              This TA is completely unassigned and has <strong>zero timetable conflicts</strong> with {c.course_code}. Ready for immediate allocation.
                                             </p>
                                           </div>
                                         );
@@ -968,10 +1199,10 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                         <span className="text-[11px] text-slate-400">Direct Database Operations</span>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                        {/* 1. Add new TA dropdown */}
-                        <div className="space-y-1.5">
-                          <label className="block text-[11px] font-semibold text-slate-600">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5 pt-1">
+                        {/* 1. Add new TA dropdown card */}
+                        <div className="min-w-0 rounded-xl border border-slate-200/90 bg-slate-50/70 p-3 space-y-2">
+                          <label className="block text-[11px] font-bold text-slate-700 truncate">
                             Add a TA to {c.course_code}:
                           </label>
                           <div className="flex items-center gap-2">
@@ -980,56 +1211,81 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                               onChange={(e) =>
                                 setAdminAddSelection((prev) => ({ ...prev, [c.course_code]: e.target.value }))
                               }
-                              className="flex-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-indigo-400 font-medium"
+                              className="w-full min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-indigo-400 font-medium truncate"
                             >
                               <option value="">— Select TA to Add —</option>
 
-                              {/* Free TAs Optgroup (Green) */}
-                              {allTAs.filter((t) => !t.assigned_to).length > 0 && (
-                                <optgroup
-                                  label={`🟢 Available / Free TAs (${allTAs.filter((t) => !t.assigned_to).length})`}
-                                  style={{ fontWeight: "bold", color: "#047857" }}
-                                >
-                                  {allTAs
-                                    .filter((t) => !t.assigned_to)
-                                    .map((t) => (
-                                      <option
-                                        key={t.roll_no}
-                                        value={t.roll_no}
-                                        style={{ color: "#065f46", fontWeight: "normal" }}
-                                      >
-                                        🟢 [FREE] {t.roll_no} — {t.name} ({t.program || "Student"})
-                                      </option>
-                                    ))}
-                                </optgroup>
-                              )}
+                              {(() => {
+                                const courseClashes = c.ta_clashes || roleView?.course_clashes?.[c.course_code] || {};
+                                const trulyFree = allTAs.filter((t) => !t.assigned_to && !courseClashes[t.roll_no]);
+                                const clashingFree = allTAs.filter((t) => !t.assigned_to && Boolean(courseClashes[t.roll_no]));
+                                const busy = allTAs.filter((t) => Boolean(t.assigned_to));
 
-                              {/* Busy TAs Optgroup (Orange / Amber) */}
-                              {allTAs.filter((t) => Boolean(t.assigned_to)).length > 0 && (
-                                <optgroup
-                                  label={`🟠 Busy / Assigned TAs (${allTAs.filter((t) => Boolean(t.assigned_to)).length})`}
-                                  style={{ fontWeight: "bold", color: "#b45309" }}
-                                >
-                                  {allTAs
-                                    .filter((t) => Boolean(t.assigned_to))
-                                    .map((t) => (
-                                      <option
-                                        key={t.roll_no}
-                                        value={t.roll_no}
-                                        style={{ color: "#92400e", fontWeight: "normal" }}
+                                return (
+                                  <>
+                                    {/* 1. Truly Free TAs (Green) */}
+                                    {trulyFree.length > 0 && (
+                                      <optgroup
+                                        label={`🟢 Available / Truly Free (${trulyFree.length})`}
+                                        style={{ fontWeight: "bold", color: "#047857" }}
                                       >
-                                        🟠 [BUSY: {t.assigned_to.course_code}] {t.roll_no} — {t.name} ({t.program || "Student"})
-                                      </option>
-                                    ))}
-                                </optgroup>
-                              )}
+                                        {trulyFree.map((t) => (
+                                          <option
+                                            key={t.roll_no}
+                                            value={t.roll_no}
+                                            style={{ color: "#065f46", fontWeight: "normal" }}
+                                          >
+                                            🟢 [FREE] {t.roll_no} — {t.name} ({t.program || "Student"})
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    )}
+
+                                    {/* 2. Free TAs with Timetable Clash (Red) */}
+                                    {clashingFree.length > 0 && (
+                                      <optgroup
+                                        label={`🔴 Timetable Clash with ${c.course_code} (${clashingFree.length})`}
+                                        style={{ fontWeight: "bold", color: "#dc2626" }}
+                                      >
+                                        {clashingFree.map((t) => (
+                                          <option
+                                            key={t.roll_no}
+                                            value={t.roll_no}
+                                            style={{ color: "#b91c1c", fontWeight: "normal" }}
+                                          >
+                                            🔴 [CLASH: {courseClashes[t.roll_no]}] {t.roll_no} — {t.name} ({t.program || "Student"})
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    )}
+
+                                    {/* 3. Busy / Assigned TAs (Orange) */}
+                                    {busy.length > 0 && (
+                                      <optgroup
+                                        label={`🟠 Busy / Assigned Elsewhere (${busy.length})`}
+                                        style={{ fontWeight: "bold", color: "#b45309" }}
+                                      >
+                                        {busy.map((t) => (
+                                          <option
+                                            key={t.roll_no}
+                                            value={t.roll_no}
+                                            style={{ color: "#92400e", fontWeight: "normal" }}
+                                          >
+                                            🟠 [BUSY: {t.assigned_to.course_code}{courseClashes[t.roll_no] ? ` | ⚠️ Clashes with ${c.course_code}` : ""}] {t.roll_no} — {t.name} ({t.program || "Student"})
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </select>
 
                             <button
                               type="button"
                               onClick={() => handleAdminAddClick(c.course_code)}
                               disabled={busyAction || !adminAddSelection[c.course_code]}
-                              className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-semibold text-xs px-3 py-1.5 shadow-2xs transition active:scale-[0.98]"
+                              className="shrink-0 inline-flex items-center gap-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-semibold text-xs px-3 py-1.5 shadow-2xs transition active:scale-[0.98]"
                             >
                               <Plus size={13} /> Add
                             </button>
@@ -1041,21 +1297,66 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                             const selTa = allTAs.find((t) => t.roll_no === selRoll);
                             if (!selTa) return null;
 
-                            return selTa.assigned_to ? (
-                              <div className="mt-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-950 animate-fadeIn">
-                                <span className="font-semibold text-amber-900">⚠️ Reallocation Notice:</span> Currently assigned to <strong className="font-mono text-indigo-700">{selTa.assigned_to.course_code}</strong>. Clicking Add will show confirmation to reallocate.
-                              </div>
-                            ) : (
-                              <div className="mt-1.5 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-[11px] text-emerald-900 animate-fadeIn">
-                                <span className="font-semibold text-emerald-900">🟢 Free TA:</span> Not assigned to any course. Ready to allocate directly.
+                            const courseClashes = c.ta_clashes || roleView?.course_clashes?.[c.course_code] || {};
+                            const selClashCourse = courseClashes[selRoll];
+
+                            if (selTa.assigned_to) {
+                              return (
+                                <div className="mt-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-950 animate-fadeIn">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-semibold text-amber-900">⚠️ Reallocation Notice:</span>
+                                    <span>Currently assigned to <strong className="font-mono text-indigo-700">{selTa.assigned_to.course_code}</strong>.</span>
+                                    {selClashCourse && (
+                                      <span className="rounded bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 border border-rose-200">
+                                        🔴 Also Clashes with {selClashCourse}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="mt-0.5 text-slate-700 text-[10px]">
+                                    Clicking Add will prompt to reallocate this TA from {selTa.assigned_to.course_code} to {c.course_code}.
+                                  </p>
+                                </div>
+                              );
+                            }
+
+                            if (selClashCourse) {
+                              return (
+                                <div className="mt-1.5 rounded-lg border border-rose-300 bg-rose-50 p-2 text-[11px] text-rose-950 animate-fadeIn">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="rounded bg-rose-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-900">
+                                      🔴 Timetable Slot Clash
+                                    </span>
+                                    <span className="font-mono font-bold text-slate-900">{selTa.roll_no}</span>
+                                  </div>
+                                  <p className="mt-1 text-rose-950">
+                                    ⚠️ <strong>Course Conflict:</strong> This TA is enrolled in <strong className="font-mono text-rose-800">{selClashCourse}</strong>, which overlaps with {c.course_code}'s scheduled hours.
+                                  </p>
+                                  <p className="text-[10px] text-rose-700 mt-0.5 font-medium">
+                                    Allocating will prompt for explicit conflict override confirmation.
+                                  </p>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="mt-1.5 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-[11px] text-emerald-950 animate-fadeIn">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="rounded bg-emerald-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-900">
+                                    🟢 Free &amp; Compatible
+                                  </span>
+                                  <span className="font-mono font-bold text-slate-900">{selTa.roll_no}</span>
+                                </div>
+                                <p className="mt-0.5 text-emerald-800">
+                                  Not assigned to any course and has <strong>zero timetable conflicts</strong> with {c.course_code}. Ready for immediate allocation.
+                                </p>
                               </div>
                             );
                           })()}
                         </div>
 
-                        {/* 2. Delete TA dropdown */}
-                        <div className="space-y-1.5">
-                          <label className="block text-[11px] font-semibold text-slate-600">
+                        {/* 2. Delete TA dropdown card */}
+                        <div className="min-w-0 rounded-xl border border-slate-200/90 bg-slate-50/70 p-3 space-y-2">
+                          <label className="block text-[11px] font-bold text-slate-700 truncate">
                             Remove a TA from {c.course_code}:
                           </label>
                           <div className="flex items-center gap-2">
@@ -1065,10 +1366,10 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                                 setAdminDeleteSelection((prev) => ({ ...prev, [c.course_code]: e.target.value }))
                               }
                               disabled={c.tas.length === 0}
-                              className="flex-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-indigo-400 disabled:bg-slate-50"
+                              className="w-full min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-indigo-400 disabled:bg-slate-100 font-medium truncate"
                             >
                               <option value="">
-                                {c.tas.length === 0 ? "— No TAs to remove —" : "— Select TA to Remove —"}
+                                {c.tas.length === 0 ? "— No TAs assigned to remove —" : "— Select TA to Remove —"}
                               </option>
                               {c.tas.map((t) => (
                                 <option key={t.roll_no} value={t.roll_no}>
@@ -1081,11 +1382,20 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                               type="button"
                               onClick={() => handleAdminRemove(c.course_code)}
                               disabled={busyAction || !adminDeleteSelection[c.course_code]}
-                              className="inline-flex items-center gap-1 rounded-xl border border-rose-200 hover:bg-rose-50 disabled:opacity-40 text-rose-700 font-semibold text-xs px-3 py-1.5 transition active:scale-[0.98]"
+                              className="shrink-0 inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-white hover:bg-rose-50 disabled:opacity-40 text-rose-700 font-semibold text-xs px-3 py-1.5 transition active:scale-[0.98]"
                             >
                               <Trash2 size={13} /> Remove
                             </button>
                           </div>
+                          {c.tas.length > 0 ? (
+                            <p className="text-[10px] text-slate-500">
+                              Currently {c.tas.length} TA(s) assigned to {c.course_code}.
+                            </p>
+                          ) : (
+                            <p className="text-[10px] text-slate-400 italic">
+                              No TAs currently allocated to remove.
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1113,6 +1423,11 @@ export default function RoleAllocationView({ roleView, facultyReqData, onRefresh
                 <p className="mt-2 text-xs text-amber-800 bg-amber-50/80 p-2.5 rounded-xl border border-amber-200/60">
                   Adding them to <strong>{reallocWarning.targetCourse}</strong> will automatically remove them from <strong>{reallocWarning.existingCourse}</strong>. Do you want to proceed?
                 </p>
+                {reallocWarning.clashCourse && (
+                  <p className="mt-2 text-xs text-rose-800 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                    🔴 <strong>Timetable Conflict:</strong> This TA is enrolled in <strong>{reallocWarning.clashCourse}</strong>, which overlaps with <strong>{reallocWarning.targetCourse}</strong>'s schedule.
+                  </p>
+                )}
               </div>
             </div>
 

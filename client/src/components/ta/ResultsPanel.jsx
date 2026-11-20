@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   Download, Star, GraduationCap, AlertTriangle, CheckCircle2,
   ChevronDown, Inbox, Users, Globe, Lock, Loader2,
+  Search, Filter, Info, ChevronUp,
 } from "lucide-react";
 import { apiDownload, apiPatch } from "../../lib/api";
 
@@ -26,12 +27,17 @@ export default function ResultsPanel({ result, onPublishedChange }) {
   const [publishing, setPublishing] = useState(false);
   const [published, setPublished] = useState(result?.is_published ?? false);
 
+  // Unmet preferences review state
+  const [showUnmet, setShowUnmet] = useState(true);
+  const [unmetFilter, setUnmetFilter] = useState("all"); // 'all' | 'supervisor' | 'clash'
+  const [unmetSearch, setUnmetSearch] = useState("");
+
   async function handleTogglePublish() {
     if (!result?.run_id) return;
     setPublishing(true);
     try {
       const nextState = !published;
-      const res = await apiPatch(`/api/ta/runs/${result.run_id}/publish`, {
+      await apiPatch(`/api/ta/runs/${result.run_id}/publish`, {
         is_published: nextState,
       });
       setPublished(nextState);
@@ -59,6 +65,91 @@ export default function ResultsPanel({ result, onPublishedChange }) {
     return [...map.values()].sort((a, b) => a.course_code.localeCompare(b.course_code));
   }, [result]);
 
+  const s = result?.stats || {};
+  const unmetPreferences = result?.unmet_preferences || [];
+
+  const prefMet = s.preferred_honoured ?? 0;
+  const prefTotal = s.preferred_requested;
+  const prefVal = prefTotal !== undefined ? `${prefMet} / ${prefTotal}` : `${prefMet}`;
+  const prefPct = prefTotal ? Math.round((prefMet / prefTotal) * 100) : null;
+  const prefSub = prefPct !== null ? `${prefPct}% of submitted preferences` : "named by instructor";
+
+  const supMet = s.supervisor_preferred_honoured ?? s.supervisor_matches ?? 0;
+  const supTotal = s.supervisor_preferred_requested;
+  const supVal = supTotal !== undefined ? `${supMet} / ${supTotal}` : `${s.supervisor_matches ?? 0}`;
+  const supPct = supTotal ? Math.round((supMet / supTotal) * 100) : null;
+  const supSub = supTotal !== undefined 
+    ? `${supPct}% guide preferences met (${s.supervisor_matches ?? supMet} total matches)` 
+    : "TA works for their guide";
+
+  const supUnmetCount = useMemo(
+    () => unmetPreferences.filter((u) => u.is_supervisor).length,
+    [unmetPreferences]
+  );
+  const clashUnmetCount = useMemo(
+    () => unmetPreferences.filter((u) => u.reason?.toLowerCase().includes("clash")).length,
+    [unmetPreferences]
+  );
+
+  const filteredUnmet = useMemo(() => {
+    return unmetPreferences.filter((u) => {
+      if (unmetFilter === "supervisor" && !u.is_supervisor) return false;
+      if (unmetFilter === "clash" && !u.reason?.toLowerCase().includes("clash")) return false;
+      if (unmetSearch.trim()) {
+        const q = unmetSearch.toLowerCase();
+        const str = `${u.course_code} ${u.course_name} ${u.instructors} ${u.ta_name} ${u.roll_no} ${u.reason}`.toLowerCase();
+        if (!str.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [unmetPreferences, unmetFilter, unmetSearch]);
+
+  function renderReasonBadge(reason) {
+    const isClash = reason.toLowerCase().includes("clash");
+    const isSup = reason.toLowerCase().includes("supervisor’s course") || reason.toLowerCase().includes("supervisor's course");
+    const isAssigned = reason.toLowerCase().includes("assigned to");
+    const isFilled = reason.toLowerCase().includes("capacity") || reason.toLowerCase().includes("demand filled");
+
+    if (isClash) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 border border-rose-200/80 px-2.5 py-1 text-xs font-semibold text-rose-700">
+          <AlertTriangle size={13} className="shrink-0 text-rose-600" />
+          {reason}
+        </span>
+      );
+    }
+    if (isSup) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-lg bg-purple-50 border border-purple-200/80 px-2.5 py-1 text-xs font-semibold text-purple-700">
+          <GraduationCap size={13} className="shrink-0 text-purple-600" />
+          {reason}
+        </span>
+      );
+    }
+    if (isAssigned) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 border border-blue-200/80 px-2.5 py-1 text-xs font-semibold text-blue-700">
+          <Users size={13} className="shrink-0 text-blue-600" />
+          {reason}
+        </span>
+      );
+    }
+    if (isFilled) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700">
+          <CheckCircle2 size={13} className="shrink-0 text-slate-500" />
+          {reason}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 text-xs font-medium text-amber-800">
+        <Info size={13} className="shrink-0 text-amber-600" />
+        {reason}
+      </span>
+    );
+  }
+
   if (!result) {
     return (
       <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-16 text-slate-400">
@@ -68,7 +159,6 @@ export default function ResultsPanel({ result, onPublishedChange }) {
     );
   }
 
-  const s = result.stats || {};
   const unfilledFor = Object.fromEntries((result.unfilled || []).map((u) => [u.course_code, u]));
   const toggle = (code) =>
     setOpen((prev) => {
@@ -79,20 +169,41 @@ export default function ResultsPanel({ result, onPublishedChange }) {
     });
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
+      {/* 5-Card Stats Overview */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-        <Stat label="Status" value={result.status === "OPTIMAL" ? "Optimal" : result.status}
-              tone={result.status === "OPTIMAL" ? "green" : "amber"}
-              sub={`solved in ${s.solve_seconds ?? 0}s`} />
-        <Stat label="Seats filled" value={`${s.seats_filled ?? 0}/${s.seats_requested ?? 0}`}
-              tone="indigo" sub={`${s.courses_requesting ?? 0} courses`} />
-        <Stat label="TAs used" value={s.tas_used ?? 0} sub={`of ${s.tas_available ?? 0} available`} />
-        <Stat label="Preferences met" value={s.preferred_honoured ?? 0}
-              sub="named by the instructor" />
-        <Stat label="Supervisor pairs" value={s.supervisor_matches ?? 0}
-              sub="TA works for their guide" />
+        <Stat
+          label="Status"
+          value={result.status === "OPTIMAL" ? "Optimal" : result.status}
+          tone={result.status === "OPTIMAL" ? "green" : "amber"}
+          sub={`solved in ${s.solve_seconds ?? 0}s`}
+        />
+        <Stat
+          label="Seats filled"
+          value={`${s.seats_filled ?? 0}/${s.seats_requested ?? 0}`}
+          tone="indigo"
+          sub={`${s.courses_requesting ?? 0} courses`}
+        />
+        <Stat
+          label="TAs used"
+          value={s.tas_used ?? 0}
+          sub={`of ${s.tas_available ?? 0} available`}
+        />
+        <Stat
+          label="Preferences met"
+          value={prefVal}
+          tone={prefTotal && prefMet === prefTotal ? "green" : "indigo"}
+          sub={prefSub}
+        />
+        <Stat
+          label="Supervisor pairs"
+          value={supVal}
+          tone={supTotal && supMet === supTotal ? "green" : "indigo"}
+          sub={supSub}
+        />
       </div>
 
+      {/* Unfilled warnings if any */}
       {result.unfilled?.length > 0 && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <div className="flex items-start gap-2">
@@ -112,7 +223,176 @@ export default function ResultsPanel({ result, onPublishedChange }) {
         </div>
       )}
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      {/* Unmet Preferences & Supervisor Analysis Section */}
+      {unmetPreferences.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div
+            onClick={() => setShowUnmet(!showUnmet)}
+            className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5 bg-gradient-to-r from-slate-50 to-indigo-50/30 border-b border-slate-100 cursor-pointer select-none hover:bg-slate-100/60 transition"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-800 font-bold text-sm">
+                {unmetPreferences.length}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                    Preferences Not Met &amp; Reason Breakdown
+                  </h3>
+                  <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                    {unmetPreferences.length} of {prefTotal ?? unmetPreferences.length + prefMet} unmet
+                  </span>
+                  {supUnmetCount > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2.5 py-0.5 text-[11px] font-bold text-purple-800">
+                      <GraduationCap size={13} /> {supUnmetCount} supervisor pair{supUnmetCount > 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Detailed inspection of faculty preferences that could not be satisfied, with exact constraint reasons (timetable clashes, priority tradeoffs).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-indigo-600">
+                {showUnmet ? "Collapse details" : "Expand details"}
+              </span>
+              {showUnmet ? (
+                <ChevronUp size={18} className="text-slate-400" />
+              ) : (
+                <ChevronDown size={18} className="text-slate-400" />
+              )}
+            </div>
+          </div>
+
+          {showUnmet && (
+            <div className="p-4 sm:p-5 space-y-4">
+              {/* Filter pills and Search bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setUnmetFilter("all")}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                      unmetFilter === "all"
+                        ? "bg-slate-900 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    All Unmet ({unmetPreferences.length})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setUnmetFilter("supervisor")}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                      unmetFilter === "supervisor"
+                        ? "bg-purple-700 text-white"
+                        : "bg-purple-50 text-purple-700 hover:bg-purple-100"
+                    }`}
+                  >
+                    <GraduationCap size={14} />
+                    Supervisor Pairs ({supUnmetCount})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setUnmetFilter("clash")}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                      unmetFilter === "clash"
+                        ? "bg-rose-700 text-white"
+                        : "bg-rose-50 text-rose-700 hover:bg-rose-100"
+                    }`}
+                  >
+                    <AlertTriangle size={14} />
+                    Timetable Clashes ({clashUnmetCount})
+                  </button>
+                </div>
+
+                <div className="relative w-full sm:w-64">
+                  <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search course, TA, reason..."
+                    value={unmetSearch}
+                    onChange={(e) => setUnmetSearch(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-indigo-400"
+                  />
+                </div>
+              </div>
+
+              {/* Unmet Preferences List */}
+              <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white overflow-hidden">
+                {filteredUnmet.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-400">
+                    No unmet preferences matching the selected filters.
+                  </div>
+                ) : (
+                  filteredUnmet.map((u, i) => (
+                    <div
+                      key={`${u.course_code}-${u.roll_no}-${i}`}
+                      className="p-3.5 sm:p-4 hover:bg-slate-50/70 transition flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
+                    >
+                      {/* Course & Faculty */}
+                      <div className="min-w-0 md:w-1/3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono font-bold text-indigo-700">
+                            {u.course_code}
+                          </span>
+                          <span className="font-semibold text-slate-900 truncate">
+                            {u.course_name}
+                          </span>
+                        </div>
+                        {u.instructors && (
+                          <p className="mt-0.5 text-[11px] text-slate-500 truncate">
+                            Faculty: <strong className="text-slate-700">{u.instructors}</strong>
+                          </p>
+                        )}
+                      </div>
+
+                      {/* TA & Supervisor */}
+                      <div className="min-w-0 md:w-1/3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-slate-900">{u.ta_name}</span>
+                          <span className="font-mono text-slate-500 text-[11px]">({u.roll_no})</span>
+                          {u.ta_program && (
+                            <span className="rounded bg-slate-100 px-1.5 py-0.2 text-[10px] text-slate-600 font-medium">
+                              {u.ta_program}
+                            </span>
+                          )}
+                          <span className="rounded bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 text-[10px] font-bold text-indigo-700">
+                            Rank #{u.rank}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
+                          <span>Thesis Guide:</span>
+                          <span className="font-medium text-slate-700 truncate">
+                            {u.thesis_supervisor || "—"}
+                          </span>
+                          {u.is_supervisor && (
+                            <span className="inline-flex items-center gap-1 rounded bg-purple-100 text-purple-800 px-1.5 py-0.2 text-[10px] font-bold">
+                              <GraduationCap size={11} /> Supervisor Pair
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Reason Badge */}
+                      <div className="md:w-1/3 flex md:justify-end">
+                        {renderReasonBadge(u.reason)}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Main Course Allocation Section Header & Action Buttons */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-2">
         <h3 className="font-semibold text-slate-900">
           Allocation by course
           <span className="ml-2 text-sm font-normal text-slate-500">
@@ -142,8 +422,12 @@ export default function ResultsPanel({ result, onPublishedChange }) {
           )}
           {result.run_id && (
             <button
-              onClick={() => apiDownload(`/api/ta/runs/${result.run_id}/export.csv`,
-                                         `ta-allocation-run-${result.run_id}.csv`)}
+              onClick={() =>
+                apiDownload(
+                  `/api/ta/runs/${result.run_id}/export.csv`,
+                  `ta-allocation-run-${result.run_id}.csv`
+                )
+              }
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
               <Download size={16} /> Download CSV
@@ -152,6 +436,7 @@ export default function ResultsPanel({ result, onPublishedChange }) {
         </div>
       </div>
 
+      {/* Course Cards List */}
       <div className="space-y-3">
         {grouped.map((g) => {
           const short = unfilledFor[g.course_code];
