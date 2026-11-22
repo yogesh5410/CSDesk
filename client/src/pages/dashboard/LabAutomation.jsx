@@ -84,33 +84,29 @@ export default function LabAutomation() {
   // Custom PC display name / alias state
   const [editingPc, setEditingPc] = useState(null);
   const [editNameVal, setEditNameVal] = useState("");
-  const [pcAliases, setPcAliases] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("csdesk_pc_aliases") || "{}");
-    } catch {
-      return {};
-    }
-  });
 
   const terminalEndRef = useRef(null);
 
-  // 1. Fetch Fleet & Filter for Selected Lab
+  // Clear legacy client-side localStorage aliases so backend is the single source of truth across all devices
+  useEffect(() => {
+    try {
+      localStorage.removeItem("csdesk_pc_aliases");
+    } catch {}
+  }, []);
+
+  // 1. Fetch Fleet & Filter for Selected Lab (Server is Single Source of Truth)
   const fetchFleet = async () => {
     try {
       const data = await apiGet(`/api/lab-automation/fleet?lab=${selectedLab}`);
       if (data.agents) {
-        const enriched = data.agents.map((a) => {
-          const alias = pcAliases[a.originalName || a.pcName] || pcAliases[a.ip] || a.displayName || a.pcName;
-          return {
-            ...a,
-            pcName: alias,
-            displayName: alias,
-            originalName: a.originalName || a.pcName,
-          };
-        });
-        setFleet(enriched);
+        setFleet(data.agents);
         // By default select all online PCs in this lab if none selected
-        setSelectedPcs(enriched.map((a) => a.pcName));
+        setSelectedPcs((prev) => {
+          if (prev.length === 0) return data.agents.map((a) => a.pcName);
+          const validNames = new Set(data.agents.flatMap((a) => [a.pcName, a.displayName, a.originalName]));
+          const filtered = prev.filter((p) => validNames.has(p));
+          return filtered.length > 0 ? filtered : data.agents.map((a) => a.pcName);
+        });
       }
     } catch (err) {
       console.error("Failed to fetch fleet:", err);
@@ -126,15 +122,11 @@ export default function LabAutomation() {
     }
 
     const identifier = pc.originalName || pc.pcName;
-    const updatedAliases = { ...pcAliases, [identifier]: trimmed, [pc.ip]: trimmed };
-    setPcAliases(updatedAliases);
-    try {
-      localStorage.setItem("csdesk_pc_aliases", JSON.stringify(updatedAliases));
-    } catch {}
 
+    // Optimistically update local fleet view
     setFleet((prev) =>
       prev.map((a) =>
-        (a.originalName === identifier || a.pcName === identifier || a.ip === pc.ip)
+        (a.originalName === identifier || a.pcName === identifier)
           ? { ...a, pcName: trimmed, displayName: trimmed }
           : a
       )
@@ -167,6 +159,7 @@ export default function LabAutomation() {
       });
     } catch (err) {
       console.warn("Failed to notify server of rename:", err);
+      fetchFleet();
     }
   };
 
@@ -315,10 +308,13 @@ export default function LabAutomation() {
     } else if (msg.type === "AGENT_RENAMED") {
       setFleet((prev) =>
         prev.map((a) =>
-          (a.originalName === msg.originalName || a.pcName === msg.originalName || a.ip === msg.agent?.ip)
+          (a.originalName === msg.originalName || a.pcName === msg.originalName)
             ? { ...a, pcName: msg.newName, displayName: msg.newName }
             : a
         )
+      );
+      setSelectedPcs((prev) =>
+        prev.map((p) => (p === msg.originalName ? msg.newName : p))
       );
     }
   };
@@ -356,6 +352,12 @@ export default function LabAutomation() {
     } else {
       setPcStates({});
     }
+  };
+
+  const handleResetStatus = () => {
+    setIsExecuting(false);
+    setExecutionId(null);
+    setPcStates({});
   };
 
   // Handle PC Selection Checkboxes
@@ -400,13 +402,16 @@ export default function LabAutomation() {
         script: script.trim(),
         executionId: newExecId,
       });
-      if (!data.success) {
-        alert("Execution failed to dispatch: " + (data.error || "Unknown"));
+      if (!data.success || data.dispatchedCount === 0) {
+        alert("Execution failed to dispatch: " + (data.error || "No matching online PCs found. Please refresh and re-select."));
         setIsExecuting(false);
+        setPcStates({});
+        return;
       }
     } catch (err) {
       alert("Execution error: " + (err.message || "Failed to contact server"));
       setIsExecuting(false);
+      setPcStates({});
     }
   };
 
@@ -755,12 +760,14 @@ export default function LabAutomation() {
               <strong className="text-indigo-600">{selectedLab}</strong>
             </span>
             <div className="flex items-center gap-2">
-              {isExecuting && (
+              {(isExecuting || Object.keys(pcStates).length > 0) && (
                 <button
                   type="button"
-                  onClick={() => setIsExecuting(false)}
-                  className="text-xs font-semibold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-xl transition-colors"
+                  onClick={handleResetStatus}
+                  className="text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-3 py-2 rounded-xl transition-colors flex items-center gap-1.5 shadow-sm"
+                  title="Clear all execution statuses and reset cards to idle"
                 >
+                  <RotateCcw className="w-3.5 h-3.5" />
                   Reset Status
                 </button>
               )}
