@@ -69,17 +69,65 @@ export default function LabAutomation() {
   const { role } = useAuth();
   const isAdmin = role === "admin";
 
-  const [selectedLab, setSelectedLab] = useState("TL1");
+  const [selectedLab, setSelectedLab] = useState(() => {
+    try {
+      return localStorage.getItem("csdesk_lab_selected_lab") || "TL1";
+    } catch {
+      return "TL1";
+    }
+  });
+
   const [fleet, setFleet] = useState([]);
   const [selectedPcs, setSelectedPcs] = useState([]);
-  const [script, setScript] = useState("hostname && uptime && free -m");
+
+  const [script, setScript] = useState(() => {
+    try {
+      return localStorage.getItem("csdesk_lab_script") || "hostname && uptime && free -m";
+    } catch {
+      return "hostname && uptime && free -m";
+    }
+  });
+
   const [copied, setCopied] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [executionId, setExecutionId] = useState(null);
 
   // Per-PC execution tracking: { [pcName]: { status: 'idle'|'running'|'success'|'failed', logs: [], duration: null, exitCode: null } }
-  const [pcStates, setPcStates] = useState({});
-  const [activeConsolePc, setActiveConsolePc] = useState(null);
+  const [pcStates, setPcStates] = useState(() => {
+    try {
+      const saved = localStorage.getItem("csdesk_lab_pc_states");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [isExecuting, setIsExecuting] = useState(() => {
+    try {
+      const saved = localStorage.getItem("csdesk_lab_pc_states");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Object.values(parsed).some((p) => p.status === "running");
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  });
+
+  const [executionId, setExecutionId] = useState(() => {
+    try {
+      return localStorage.getItem("csdesk_lab_execution_id") || null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [activeConsolePc, setActiveConsolePc] = useState(() => {
+    try {
+      return localStorage.getItem("csdesk_lab_active_console_pc") || null;
+    } catch {
+      return null;
+    }
+  });
 
   // Custom PC display name / alias state
   const [editingPc, setEditingPc] = useState(null);
@@ -87,12 +135,57 @@ export default function LabAutomation() {
 
   const terminalEndRef = useRef(null);
 
-  // Clear legacy client-side localStorage aliases so backend is the single source of truth across all devices
+  // Clear legacy client-side aliases so backend is the single source of truth across all devices
   useEffect(() => {
     try {
       localStorage.removeItem("csdesk_pc_aliases");
     } catch {}
   }, []);
+
+  // Persist script across reloads
+  useEffect(() => {
+    try {
+      localStorage.setItem("csdesk_lab_script", script);
+    } catch {}
+  }, [script]);
+
+  // Persist selected lab across reloads
+  useEffect(() => {
+    try {
+      localStorage.setItem("csdesk_lab_selected_lab", selectedLab);
+    } catch {}
+  }, [selectedLab]);
+
+  // Persist pcStates (terminal logs & status) across reloads
+  useEffect(() => {
+    try {
+      if (pcStates && Object.keys(pcStates).length > 0) {
+        localStorage.setItem("csdesk_lab_pc_states", JSON.stringify(pcStates));
+      } else {
+        localStorage.removeItem("csdesk_lab_pc_states");
+      }
+    } catch {}
+  }, [pcStates]);
+
+  // Persist active console PC tab
+  useEffect(() => {
+    try {
+      if (activeConsolePc) {
+        localStorage.setItem("csdesk_lab_active_console_pc", activeConsolePc);
+      }
+    } catch {}
+  }, [activeConsolePc]);
+
+  // Persist execution ID
+  useEffect(() => {
+    try {
+      if (executionId) {
+        localStorage.setItem("csdesk_lab_execution_id", executionId);
+      } else {
+        localStorage.removeItem("csdesk_lab_execution_id");
+      }
+    } catch {}
+  }, [executionId]);
 
   // 1. Fetch Fleet & Filter for Selected Lab (Server is Single Source of Truth)
   const fetchFleet = async () => {
@@ -165,8 +258,6 @@ export default function LabAutomation() {
 
   useEffect(() => {
     fetchFleet();
-    setActiveConsolePc(null);
-    setPcStates({});
     const interval = setInterval(fetchFleet, 5000);
     return () => clearInterval(interval);
   }, [selectedLab]);
@@ -324,33 +415,35 @@ export default function LabAutomation() {
     terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [pcStates, activeConsolePc]);
 
-  // Auto-reset and clean console when all PCs disconnect
+  // Ensure active console PC is valid when fleet loads without destroying persisted logs
   useEffect(() => {
-    if (fleet.length === 0) {
-      setIsExecuting(false);
-      setActiveConsolePc(null);
-      setPcStates({});
-      setSelectedPcs([]);
-    } else {
-      if (activeConsolePc && !fleet.some((p) => p.pcName === activeConsolePc)) {
-        setActiveConsolePc(fleet[0]?.pcName || null);
-      } else if (!activeConsolePc && fleet.length > 0) {
+    if (fleet.length > 0) {
+      if (!activeConsolePc || (!pcStates[activeConsolePc] && !fleet.some((p) => p.pcName === activeConsolePc))) {
         setActiveConsolePc(fleet[0]?.pcName || null);
       }
     }
-  }, [fleet]);
+  }, [fleet, activeConsolePc, pcStates]);
 
   const clearConsole = () => {
     if (activeConsolePc) {
-      setPcStates((prev) => ({
-        ...prev,
-        [activeConsolePc]: {
-          ...(prev[activeConsolePc] || {}),
-          logs: [],
-        },
-      }));
+      setPcStates((prev) => {
+        const next = {
+          ...prev,
+          [activeConsolePc]: {
+            ...(prev[activeConsolePc] || {}),
+            logs: [],
+          },
+        };
+        try {
+          localStorage.setItem("csdesk_lab_pc_states", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
     } else {
       setPcStates({});
+      try {
+        localStorage.removeItem("csdesk_lab_pc_states");
+      } catch {}
     }
   };
 
@@ -358,6 +451,10 @@ export default function LabAutomation() {
     setIsExecuting(false);
     setExecutionId(null);
     setPcStates({});
+    try {
+      localStorage.removeItem("csdesk_lab_pc_states");
+      localStorage.removeItem("csdesk_lab_execution_id");
+    } catch {}
   };
 
   // Handle PC Selection Checkboxes
