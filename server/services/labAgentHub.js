@@ -131,7 +131,21 @@ class LabAgentHub {
         }
 
         const rawPcName = msg.pcName || `PC-${remoteIp}`;
-        const alias = this.pcAliases.get(rawPcName) || this.pcAliases.get(remoteIp) || null;
+
+        // Clean up any stale agents with the same name or same IP
+        for (const [existingId, existingAgent] of this.agents.entries()) {
+          if (existingAgent.originalName === rawPcName || existingAgent.pcName === rawPcName || (existingAgent.ip === (msg.ip || remoteIp) && existingAgent.ws !== ws)) {
+            try { existingAgent.ws.close(); } catch (e) {}
+            this.agents.delete(existingId);
+          }
+        }
+
+        // When a PC registers with an explicit name, clear any old alias so new registration name always takes effect
+        if (msg.pcName) {
+          this.pcAliases.delete(rawPcName);
+        }
+
+        const alias = this.pcAliases.get(rawPcName) || null;
         const displayName = alias || rawPcName;
 
         const agentInfo = {
@@ -242,14 +256,16 @@ class LabAgentHub {
     const cleanNew = (newName || '').trim();
     if (!cleanNew) return false;
 
-    // Save alias by identifier
+    // Save alias by targetIdentifier
     this.pcAliases.set(targetIdentifier, cleanNew);
 
     let found = false;
     for (const agent of this.agents.values()) {
-      if (agent.pcName === targetIdentifier || agent.originalName === targetIdentifier || agent.ip === targetIdentifier) {
+      if (agent.pcName === targetIdentifier || agent.originalName === targetIdentifier) {
         agent.pcName = cleanNew;
         agent.displayName = cleanNew;
+        this.pcAliases.set(agent.originalName, cleanNew);
+        this.pcAliases.set(cleanNew, agent.originalName);
         found = true;
         this.broadcastToAdmins({
           type: 'AGENT_RENAMED',
@@ -283,7 +299,10 @@ class LabAgentHub {
       const matchPc = !targetPcs || targetPcs.length === 0 || 
         targetPcs.includes(agent.pcName) || 
         targetPcs.includes(agent.originalName) || 
-        targetPcs.includes(agent.displayName);
+        targetPcs.includes(agent.displayName) ||
+        targetPcs.includes(agent.ip) ||
+        (agent.originalName && targetPcs.includes(this.pcAliases.get(agent.originalName))) ||
+        (agent.pcName && targetPcs.includes(this.pcAliases.get(agent.pcName)));
 
       if (matchLab && matchPc && agent.ws.readyState === WebSocket.OPEN) {
         agent.status = 'busy';
@@ -324,6 +343,14 @@ class LabAgentHub {
       script,
       timestamp: Date.now()
     });
+
+    if (dispatchedCount === 0) {
+      return {
+        executionId: execId,
+        dispatchedCount: 0,
+        error: `No online PCs in lab '${lab}' matched target: ${(targetPcs || []).join(', ')}`
+      };
+    }
 
     return { executionId: execId, dispatchedCount };
   }

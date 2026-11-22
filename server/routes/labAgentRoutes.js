@@ -31,7 +31,7 @@ router.get('/fleet', requireAuth, (req, res) => {
 
 // 2. Dispatch command to selected PCs - STRICTLY ADMIN ONLY
 router.post('/execute', requireAuth, requireAdmin, (req, res) => {
-  const { lab, targetPcs, script } = req.body;
+  const { lab, targetPcs, script, executionId } = req.body;
 
   if (!script || !script.trim()) {
     return res.status(400).json({ error: "Script/command cannot be empty." });
@@ -40,8 +40,17 @@ router.post('/execute', requireAuth, requireAdmin, (req, res) => {
   const result = labAgentHub.executeCommand({
     lab: lab || 'ALL',
     targetPcs: targetPcs || [],
-    script: script.trim()
+    script: script.trim(),
+    executionId
   });
+
+  if (result.dispatchedCount === 0) {
+    return res.status(404).json({
+      success: false,
+      dispatchedCount: 0,
+      error: result.error || "No matching online PCs found for this command."
+    });
+  }
 
   res.json({
     success: true,
