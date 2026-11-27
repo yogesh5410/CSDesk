@@ -35,10 +35,10 @@ export default function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
       <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-blue-700 text-sm font-bold text-white">
+        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-green-950 to-emerald-900 text-sm font-black text-white shadow-sm ring-1 ring-emerald-700/40">
           CS
         </div>
-        <h1 className="mt-4 text-xl font-semibold text-slate-900">
+        <h1 className="mt-4 text-xl font-bold text-slate-900">
           Sign in to CSDesk
         </h1>
         <p className="mt-2 text-sm text-slate-500">

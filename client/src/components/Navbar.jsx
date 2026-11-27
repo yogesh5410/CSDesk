@@ -3,19 +3,18 @@ import { Link } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 
 const navLinks = [
-  { label: "Features", href: "#features" },
+  { label: "Modules", href: "#features" },
   { label: "About", href: "#about" },
-  { label: "Contact", href: "#contact" },
 ];
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/80 backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <a href="#" className="flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-700 text-sm font-bold text-white">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-green-900 text-sm font-bold text-white">
             CS
           </span>
           <span className="flex flex-col leading-tight">
@@ -31,7 +30,7 @@ export default function Navbar() {
             <a
               key={link.href}
               href={link.href}
-              className="text-sm font-medium text-slate-600 transition hover:text-blue-700"
+              className="text-sm font-medium text-slate-600 transition hover:text-green-800"
             >
               {link.label}
             </a>
@@ -41,7 +40,7 @@ export default function Navbar() {
         <div className="hidden md:block">
           <Link
             to="/login"
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-800"
+            className="rounded-lg bg-green-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-800"
           >
             Sign In
           </Link>
@@ -65,7 +64,7 @@ export default function Navbar() {
                 key={link.href}
                 href={link.href}
                 onClick={() => setOpen(false)}
-                className="text-sm font-medium text-slate-600 hover:text-blue-700"
+                className="text-sm font-medium text-slate-600 hover:text-green-800"
               >
                 {link.label}
               </a>
@@ -73,7 +72,7 @@ export default function Navbar() {
             <Link
               to="/login"
               onClick={() => setOpen(false)}
-              className="mt-2 rounded-md bg-blue-700 px-4 py-2 text-center text-sm font-medium text-white hover:bg-blue-800"
+              className="mt-2 rounded-lg bg-green-900 px-4 py-2 text-center text-sm font-medium text-white hover:bg-green-800"
             >
               Sign In
             </Link>
