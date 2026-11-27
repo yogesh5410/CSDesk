@@ -2,6 +2,7 @@ const stack = [
   { label: "Frontend", value: "React + Vite + Tailwind CSS" },
   { label: "Backend", value: "Node.js + Express" },
   { label: "Database", value: "Supabase (PostgreSQL)" },
+  { label: "Remote Agent", value: "Python 3 + Systemd Daemon" },
   { label: "Access Control", value: "Student · Faculty · Admin roles" },
 ];
 
@@ -13,18 +14,16 @@ export default function About() {
           <h2 className="text-3xl font-bold text-slate-900 sm:text-4xl">
             About CSDesk
           </h2>
-          <p className="mt-5 text-slate-600">
-            CSDesk is a B.Tech project built to automate the daily operations
+          <p className="mt-5 text-slate-600 leading-relaxed">
+            CSDesk is a B.Tech project built to automate the core operations
             of the Department of Computer Science, IIT Bhilai. It brings
-            room and lab booking, TA allocation, inventory tracking, the
-            student &amp; staff directory, lost &amp; found, seating
-            arrangements, and lab software deployment into one role-based web
-            platform.
+            lab allocation, TA allocation, and remote lab software deployment
+            into one role-based web platform.
           </p>
-          <p className="mt-4 text-slate-600">
+          <p className="mt-4 text-slate-600 leading-relaxed">
             The goal is simple: replace manual, paper-driven processes with a
-            single system that students, faculty, and department staff can
-            rely on.
+            single reliable system that students, faculty, and department staff can
+            use easily.
           </p>
         </div>
 

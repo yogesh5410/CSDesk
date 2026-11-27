@@ -4,17 +4,21 @@ import { navItems } from "../../config/navigation";
 
 export default function Overview() {
   const { user } = useAuth();
-  const firstName =
-    user?.user_metadata?.full_name?.split(" ")[0] || "there";
+  const fullName =
+    user?.user_metadata?.full_name ||
+    user?.name ||
+    user?.email?.split("@")[0] ||
+    "Durgesh";
+  const firstName = fullName.split(" ")[0];
   const modules = navItems.filter((item) => !item.end);
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-slate-900">
+      <h2 className="text-xl font-semibold text-slate-900">
         Welcome, {firstName}
       </h2>
       <p className="mt-1 text-sm text-slate-500">
-        Signed in as {user?.email}
+        Signed in as {user?.email || "durgesh@iitbhilai.ac.in"}
       </p>
 
       <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -22,7 +26,7 @@ export default function Overview() {
           <Link
             key={path}
             to={path}
-            className="rounded-xl border border-slate-200 bg-white p-5 transition hover:border-green-300 hover:shadow-sm"
+            className="rounded-xl border border-slate-200 bg-white p-5 transition hover:border-green-400 hover:shadow-sm"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-50 text-green-800">
               <Icon size={20} />
