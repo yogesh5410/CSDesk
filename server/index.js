@@ -31,7 +31,7 @@ app.use((req, res, next) => {
   if (isAllowed) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Simulate-Role, X-Simulate-User");
+    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Simulate-Role, X-Simulate-User, X-Semester-Id");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS");
   }
   if (req.method === "OPTIONS") return res.sendStatus(204);

@@ -36,26 +36,21 @@ TITLES = {"dr", "prof", "mr", "ms", "mrs", "shri", "smt"}
 PLACEHOLDERS = {"dpgc", "dugc", "tba", "na", "none", ""}
 
 # ==============================================================================
-# OBJECTIVE WEIGHT HIERARCHY (DECADE SCALING)
+# OBJECTIVE WEIGHT HIERARCHY (BALANCED UNIVERSAL SCALING)
 # ==============================================================================
-# Weights are separated by orders of magnitude so that higher-level department
-# policies strictly dominate lower-level preferences without interference:
+# Universally calibrated hierarchy designed to perform robustly across all academic datasets:
 #
-# Tier 1 (100,000): Base coverage - every course asking for TAs gets at least one.
-# Tier 2 (10,000) : Proportional demand scaling - fair sharing during shortages.
-# Tier 3 (1,000)  : Seat filling - incentive to fulfill total requested headcount.
-# Tier 4 (200)    : Supervisor priority - thesis advisor wins a contested student.
-# Tier 5 (10-100) : Faculty preference ranking - best preferred TAs chosen first.
+# Tier 1 (100,000): Base coverage - every requesting course gets at least one TA (dominant).
+# Tier 2 (6,000)  : Proportional demand scaling - fair sharing during departmental shortages.
+# Tier 3 (1,800)  : Supervisor priority - thesis advisor matching for requested research scholars.
+# Tier 4 (600)    : Seat filling baseline - incentive to fulfill total requested headcount.
+# Tier 5 (60-600) : Faculty preference ranking - best preferred TAs chosen first (step 30).
 W_HAS_ANY = 100000
-W_SEAT = 1000
-W_PREF_TOP = 100
-W_PREF_STEP = 5
-
-# Sized strictly above the entire preference range (10-100):
-# Rule 3 states that a student's thesis supervisor takes precedence when two
-# courses contest the same TA. A +200 bonus guarantees the advisor wins any
-# preference contest while still respecting the higher-tier seat-filling terms.
-W_SUPERVISOR = 200
+W_PROPORTIONAL = 6000
+W_SUPERVISOR = 1800
+W_SEAT = 600
+W_PREF_TOP = 600
+W_PREF_STEP = 30
 
 
 # ==============================================================================
@@ -356,7 +351,6 @@ def solve(data):
         # more heavily than later seats, scaled inversely by total course demand.
         # This mathematically forces the solver to balance fulfillment percentages
         # (e.g. allocating 10% to small and 10% to large courses) rather than starving either.
-        W_PROPORTIONAL = 10000
         y_vars = []
         for k in range(1, need + 1):
             y = model.NewBoolVar(f"y_{code}_{k}")
@@ -369,14 +363,13 @@ def solve(data):
         # Soft Objectives: Faculty Preference Ranks & Thesis Supervisor Match
         instructors = split_people(courses.get(code, {}).get("instructors", ""))
         for roll in eligible[code]:
-            # Faculty preference bonus: Rank 1 gets +100, Rank 2 gets +95, etc.
+            # Faculty preference bonus: Rank 1 gets W_PREF_TOP, decreasing by W_PREF_STEP per rank
             rank = prefs[code].get(roll)
             if rank:
-                obj.append(max(W_PREF_TOP - W_PREF_STEP * (rank - 1), 10)
-                           * x[roll, code])
+                score = max(W_PREF_TOP - W_PREF_STEP * (rank - 1), W_PREF_TOP // 10)
+                obj.append(score * x[roll, code])
 
-            # Thesis supervisor bonus (+200): Outranks preference differences to
-            # guarantee the research advisor wins contested student assignments.
+            # Thesis supervisor bonus: outranks non-essential marginal seats so advisors get their students
             supervisor = tas[roll].get("thesis_supervisor", "")
             if any(same_person(supervisor, i) for i in instructors):
                 obj.append(W_SUPERVISOR * x[roll, code])
@@ -441,6 +434,89 @@ def solve(data):
 
     # Sort allocations cleanly by course code and TA roll number
     allocations.sort(key=lambda a: (a["course_code"], a["ta_roll_no"]))
+
+    # Map allocations for quick lookup
+    alloc_by_course = defaultdict(list)
+    alloc_by_ta = {}
+    for a in allocations:
+        alloc_by_course[a["course_code"]].append(a["ta_roll_no"])
+        alloc_by_ta[a["ta_roll_no"]] = a["course_code"]
+
+    unmet_preferences = []
+    total_preferred_requested = 0
+    supervisor_preferred_requested = 0
+    supervisor_preferred_honoured = 0
+
+    for req in requirements:
+        code = req["course_code"]
+        course = courses.get(code, {})
+        instructors = split_people(course.get("instructors", ""))
+        c_cells = course_cells.get(code, set())
+        tas_needed = int(req.get("tas_required", 1))
+        allocated_to_this = set(alloc_by_course.get(code, []))
+
+        raw = (req.get("preferred_ta_rolls") or "").strip()
+        rolls = [p.strip() for p in re.split(r"[;,]", raw) if p.strip()]
+
+        for rank, roll in enumerate(rolls, 1):
+            total_preferred_requested += 1
+            ta = tas.get(roll)
+            is_sup = False
+            if ta:
+                is_sup = any(same_person(ta.get("thesis_supervisor", ""), i) for i in instructors)
+            if is_sup:
+                supervisor_preferred_requested += 1
+
+            if roll in allocated_to_this:
+                if is_sup:
+                    supervisor_preferred_honoured += 1
+                continue  # Preference met
+
+            # Preference NOT met: determine exact reason
+            if not ta:
+                reason = "Roll number not found in student TA database"
+                ta_name = roll
+                ta_program = "—"
+                thesis_sup = "—"
+            else:
+                ta_name = ta.get("name", roll)
+                ta_program = ta.get("program", "")
+                thesis_sup = ta.get("thesis_supervisor", "—")
+                clash_cells = busy.get(roll, set()) & c_cells
+                if clash_cells:
+                    clashing = []
+                    for ec in registered.get(roll.strip().upper(), []):
+                        if cell_lookup.get(ec, set()) & c_cells:
+                            clashing.append(ec)
+                    cc_str = ", ".join(sorted(set(clashing))) if clashing else "enrolled coursework"
+                    reason = f"Timetable clash with enrolled course: {cc_str}"
+                elif roll in alloc_by_ta:
+                    other_c = alloc_by_ta[roll]
+                    other_course = courses.get(other_c, {})
+                    other_inst = split_people(other_course.get("instructors", ""))
+                    other_is_sup = any(same_person(ta.get("thesis_supervisor", ""), i) for i in other_inst)
+                    if other_is_sup:
+                        reason = f"Assigned to thesis supervisor’s course ({other_c})"
+                    else:
+                        reason = f"Assigned to {other_c} (higher priority / department balance)"
+                elif len(allocated_to_this) >= tas_needed:
+                    reason = f"Course demand filled ({tas_needed} TAs) by higher-priority candidates"
+                else:
+                    reason = "Not allocated (department seat balancing)"
+
+            unmet_preferences.append({
+                "course_code": code,
+                "course_name": course.get("course_name", code),
+                "instructors": course.get("instructors", ""),
+                "roll_no": roll,
+                "ta_name": ta_name,
+                "ta_program": ta_program,
+                "thesis_supervisor": thesis_sup,
+                "rank": rank,
+                "is_supervisor": is_sup,
+                "reason": reason,
+            })
+
     progress("done", 100, "finished")
 
     # Return structured result summary dictionary
@@ -450,6 +526,7 @@ def solve(data):
         "allocations": allocations,
         "unfilled": unfilled,
         "starved": starved,
+        "unmet_preferences": unmet_preferences,
         "stats": {
             "courses_requesting": len(requirements),
             "seats_requested": sum(int(r["tas_required"]) for r in requirements),
@@ -457,7 +534,10 @@ def solve(data):
             "tas_available": len(tas),
             "tas_used": len({a["ta_roll_no"] for a in allocations}),
             "preferred_honoured": sum(1 for a in allocations if a["is_preferred"]),
+            "preferred_requested": total_preferred_requested,
             "supervisor_matches": sum(1 for a in allocations if a["is_supervisor"]),
+            "supervisor_preferred_requested": supervisor_preferred_requested,
+            "supervisor_preferred_honoured": supervisor_preferred_honoured,
             "variables": len(x),
             "solve_seconds": round(solver.WallTime(), 2),
         },

@@ -176,21 +176,165 @@ function runPython(script, args, { input, onLine } = {}) {
   });
 }
 
-/** Replace a table's entire contents -- every upload is a whole-file load.
+/** Helper to resolve the target semester for any request */
+export async function getTargetSemester(req) {
+  const param = req.query?.semester || req.headers?.["x-semester-id"] || req.body?.semester;
+  if (param && String(param).trim()) return String(param).trim();
+  try {
+    const { data } = await supabase.from("semesters").select("id").eq("is_active", true).maybeSingle();
+    if (data?.id) return data.id;
+  } catch {}
+  return "2025-26-even";
+}
+
+/** Replace a table's entire contents scoped to a semester -- every upload is a whole-file load.
  *  Transactional where the direct DB connection is configured, so a rejected
  *  row leaves the previous data intact. */
-async function replaceTable(table, rows, keyColumn) {
-  const { inserted } = await replaceTableTx(table, rows, keyColumn, Object.keys(TABLES));
+async function replaceTable(table, rows, keyColumn, semesterId) {
+  const { inserted } = await replaceTableTx(table, rows, keyColumn, Object.keys(TABLES), semesterId);
   return inserted;
 }
 
 const cleanup = (file) => { try { fs.unlinkSync(file.path); } catch { /* gone */ } };
 
 /* ------------------------------------------------------------------ *
+ * Semester Management Endpoints
+ * ------------------------------------------------------------------ */
+router.get("/semesters", async (_req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("semesters")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    const active = (data || []).find((s) => s.is_active) || data?.[0] || null;
+    res.json({
+      semesters: data || [],
+      activeSemester: active,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/semesters", requireAdmin, async (req, res) => {
+  const { name, academic_year, term, is_active } = req.body || {};
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: "Semester name is required (e.g., 'Monsoon 2026')" });
+  }
+
+  const cleanName = name.trim();
+  const cleanYear = (academic_year || "").trim() || "2026-27";
+  const cleanTerm = (term || "").trim() || "Monsoon";
+  
+  const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const id = slug || `sem_${Date.now()}`;
+
+  try {
+    // If setting active, deactivate other semesters first
+    if (is_active) {
+      await supabase.from("semesters").update({ is_active: false }).neq("id", id);
+    }
+
+    const { data: newSem, error: insertErr } = await supabase
+      .from("semesters")
+      .upsert({
+        id,
+        name: cleanName,
+        academic_year: cleanYear,
+        term: cleanTerm,
+        is_active: !!is_active,
+      }, { onConflict: "id" })
+      .select()
+      .single();
+
+    if (insertErr) throw new Error(insertErr.message);
+
+    res.json({
+      semester: newSem,
+      message: `Semester '${cleanName}' created successfully.`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch("/semesters/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { name, academic_year, term } = req.body || {};
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: "Semester name is required." });
+  }
+  try {
+    const updatePayload = { name: name.trim() };
+    if (academic_year !== undefined && academic_year.trim()) updatePayload.academic_year = academic_year.trim();
+    if (term !== undefined && term.trim()) updatePayload.term = term.trim();
+
+    const { data, error } = await supabase
+      .from("semesters")
+      .update(updatePayload)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    res.json({ semester: data, message: `Semester '${data.name}' updated successfully.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch("/semesters/:id/activate", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await supabase.from("semesters").update({ is_active: false }).neq("id", id);
+    const { data, error } = await supabase
+      .from("semesters")
+      .update({ is_active: true })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    res.json({ semester: data, message: `Semester '${data.name}' is now active.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete("/semesters/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { data: all } = await supabase.from("semesters").select("id, is_active");
+    if ((all || []).length <= 1) {
+      return res.status(400).json({ error: "Cannot delete the only remaining semester." });
+    }
+    const toDelete = (all || []).find((s) => s.id === id);
+    if (toDelete?.is_active) {
+      return res.status(400).json({ error: "Cannot delete the active semester. Please activate another semester first." });
+    }
+
+    await Promise.all([
+      supabase.from("courses").delete().eq("semester_id", id),
+      supabase.from("timetable").delete().eq("semester_id", id),
+      supabase.from("ta_details").delete().eq("semester_id", id),
+      supabase.from("course_registration").delete().eq("semester_id", id),
+      supabase.from("ta_requirements").delete().eq("semester_id", id),
+      supabase.from("allocation_runs").delete().eq("semester_id", id),
+      supabase.from("ta_change_requests").delete().eq("semester_id", id),
+      supabase.from("semesters").delete().eq("id", id),
+    ]);
+
+    res.json({ success: true, message: "Semester deleted successfully." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ------------------------------------------------------------------ *
  * PDF uploads (Admin only)
  * ------------------------------------------------------------------ */
 router.post("/upload/courses-pdf", requireAdmin, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+  const semesterId = await getTargetSemester(req);
   try {
     const out = await runPython("parse_courses.py", [req.file.path]);
     const parsed = JSON.parse(out);
@@ -198,7 +342,7 @@ router.post("/upload/courses-pdf", requireAdmin, upload.single("file"), async (r
     if (!parsed.courses?.length) {
       throw new Error("No CSE courses found -- is this the course list PDF?");
     }
-    const n = await replaceTable("courses", parsed.courses, "course_code");
+    const n = await replaceTable("courses", parsed.courses, "course_code", semesterId);
     res.json({ table: "courses", inserted: n, skipped: parsed.skipped,
                message: `${n} CSE courses stored (${parsed.skipped} non-CSE rows ignored).` });
   } catch (e) {
@@ -208,12 +352,13 @@ router.post("/upload/courses-pdf", requireAdmin, upload.single("file"), async (r
 
 router.post("/upload/timetable-pdf", requireAdmin, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+  const semesterId = await getTargetSemester(req);
   try {
     const out = await runPython("parse_timetable.py", [req.file.path]);
     const parsed = JSON.parse(out);
     if (parsed.error) throw new Error(parsed.error);
     if (!parsed.rows?.length) throw new Error("No timetable grid found in this PDF.");
-    await replaceTable("timetable", parsed.rows, "day");
+    await replaceTable("timetable", parsed.rows, "day", semesterId);
     res.json({ table: "timetable", inserted: parsed.rows.length,
                periods: parsed.periods.length,
                message: `${parsed.rows.length} cells stored across ${parsed.periods.length} periods x 5 days.` });
@@ -277,8 +422,9 @@ router.post("/upload/csv/:table", requireAdmin, upload.single("file"), async (re
 
     if (!rows.length) throw new Error(`No valid rows. ${problems.slice(0, 3).join("; ")}`);
 
+    const semesterId = await getTargetSemester(req);
     const keyCol = spec.columns[0];
-    const n = await replaceTable(name, rows, keyCol);
+    const n = await replaceTable(name, rows, keyCol, semesterId);
     res.json({
       table: name, inserted: n, rejected: objects.length - n,
       problems: problems.slice(0, 10),
@@ -292,23 +438,28 @@ router.post("/upload/csv/:table", requireAdmin, upload.single("file"), async (re
 /* ------------------------------------------------------------------ *
  * Preview
  * ------------------------------------------------------------------ */
-router.get("/tables", async (_req, res) => {
+router.get("/tables", async (req, res) => {
+  const semesterId = await getTargetSemester(req);
   const out = {};
   for (const [name, spec] of Object.entries(TABLES)) {
-    const { count, error } = await supabase
-      .from(name).select("*", { count: "exact", head: true });
+    let q = supabase.from(name).select("*", { count: "exact", head: true });
+    if (name !== "users") {
+      q = q.eq("semester_id", semesterId);
+    }
+    const { count, error } = await q;
     out[name] = {
       label: spec.label, source: spec.source, columns: spec.columns,
       readOnly: !!spec.readOnly, count: error ? 0 : count ?? 0,
       error: error ? error.message : null,
     };
   }
-  res.json({ tables: out });
+  res.json({ tables: out, semesterId });
 });
 
 router.get("/table/:name", async (req, res) => {
   const spec = TABLES[req.params.name];
   if (!spec) return res.status(404).json({ error: "Unknown table" });
+  const semesterId = await getTargetSemester(req);
   const limit = Math.min(Number(req.query.limit) || 50, 500);
   const offset = Number(req.query.offset) || 0;
   const search = (req.query.q || "").trim();
@@ -319,6 +470,10 @@ router.get("/table/:name", async (req, res) => {
     .select(fetchCols.join(","), { count: "exact" })
     .order(spec.orderBy, { ascending: true })
     .range(offset, offset + limit - 1);
+
+  if (req.params.name !== "users") {
+    q = q.eq("semester_id", semesterId);
+  }
 
   if (search) {
     const escaped = search.replace(/[%,()]/g, " ");
@@ -336,6 +491,7 @@ router.get("/table/:name", async (req, res) => {
     total: count ?? 0,
     limit,
     offset,
+    semesterId,
   });
 });
 
@@ -421,9 +577,13 @@ router.post("/table/:name", requireAdmin, async (req, res) => {
   const name = req.params.name;
   const spec = TABLES[name];
   if (!spec || spec.readOnly) return res.status(400).json({ error: `Table '${name}' is not editable.` });
+  const semesterId = await getTargetSemester(req);
 
   try {
     const rowData = validateAndNormalizeRow(name, spec, req.body, false);
+    if (name !== "users") {
+      rowData.semester_id = semesterId;
+    }
     const { data, error } = await supabase.from(name).insert([rowData]).select();
     if (error) throw new Error(error.message);
     res.status(201).json({
@@ -441,6 +601,7 @@ router.patch("/table/:name/:id", requireAdmin, async (req, res) => {
   const spec = TABLES[name];
   if (!spec || spec.readOnly) return res.status(400).json({ error: `Table '${name}' is not editable.` });
   const id = decodeURIComponent(req.params.id);
+  const semesterId = await getTargetSemester(req);
 
   try {
     const rowData = validateAndNormalizeRow(name, spec, req.body, true);
@@ -448,7 +609,11 @@ router.patch("/table/:name/:id", requireAdmin, async (req, res) => {
       return res.status(400).json({ error: "No fields provided to update." });
     }
     const pkCol = spec.primaryKey || spec.orderBy;
-    const { data, error } = await supabase.from(name).update(rowData).eq(pkCol, id).select();
+    let updateQ = supabase.from(name).update(rowData).eq(pkCol, id);
+    if (name !== "users") {
+      updateQ = updateQ.eq("semester_id", semesterId);
+    }
+    const { data, error } = await updateQ.select();
     if (error) throw new Error(error.message);
     if (!data || data.length === 0) {
       return res.status(404).json({ error: `Row with ${pkCol}='${id}' not found.` });
@@ -468,10 +633,15 @@ router.delete("/table/:name/:id", requireAdmin, async (req, res) => {
   const spec = TABLES[name];
   if (!spec || spec.readOnly) return res.status(400).json({ error: `Table '${name}' is not editable.` });
   const id = decodeURIComponent(req.params.id);
+  const semesterId = await getTargetSemester(req);
 
   try {
     const pkCol = spec.primaryKey || spec.orderBy;
-    const { error } = await supabase.from(name).delete().eq(pkCol, id);
+    let delQ = supabase.from(name).delete().eq(pkCol, id);
+    if (name !== "users") {
+      delQ = delQ.eq("semester_id", semesterId);
+    }
+    const { error } = await delQ;
     if (error) throw new Error(error.message);
     res.json({
       success: true,
@@ -489,10 +659,14 @@ router.delete("/table/:name/:id", requireAdmin, async (req, res) => {
  * ------------------------------------------------------------------ */
 const ALL = { from: 0, to: 49999 };
 
-async function loadAll(table, columns, orderBy) {
-  const { data, error } = await supabase
+async function loadAll(table, columns, orderBy, semesterId) {
+  let q = supabase
     .from(table).select(columns.join(",")).order(orderBy, { ascending: true })
     .range(ALL.from, ALL.to);
+  if (semesterId && table !== "users") {
+    q = q.eq("semester_id", semesterId);
+  }
+  const { data, error } = await q;
   if (error) throw new Error(`reading ${table}: ${error.message}`);
   return data || [];
 }
@@ -507,13 +681,14 @@ router.post("/allocate", requireAdmin, async (req, res) => {
 
   try {
     send({ type: "progress", phase: "loading", pct: 3, detail: "reading tables from the database" });
+    const semesterId = await getTargetSemester(req);
 
     const [courses, timetable, taDetails, registrations, requirements] = await Promise.all([
-      loadAll("courses", TABLES.courses.columns, "course_code"),
-      loadAll("timetable", TABLES.timetable.columns, "id"),
-      loadAll("ta_details", TABLES.ta_details.columns, "roll_no"),
-      loadAll("course_registration", TABLES.course_registration.columns, "id"),
-      loadAll("ta_requirements", TABLES.ta_requirements.columns, "course_code"),
+      loadAll("courses", TABLES.courses.columns, "course_code", semesterId),
+      loadAll("timetable", TABLES.timetable.columns, "id", semesterId),
+      loadAll("ta_details", TABLES.ta_details.columns, "roll_no", semesterId),
+      loadAll("course_registration", TABLES.course_registration.columns, "id", semesterId),
+      loadAll("ta_requirements", TABLES.ta_requirements.columns, "course_code", semesterId),
     ]);
 
     // Note: If some courses have not submitted requirements yet, they are simply omitted from
@@ -556,8 +731,16 @@ router.post("/allocate", requireAdmin, async (req, res) => {
     if (final.status !== "ERROR") {
       const { data: run, error: runErr } = await supabase
         .from("allocation_runs")
-        .insert({ status: final.status,
-                  summary: { ...final.stats, unfilled: final.unfilled, starved: final.starved } })
+        .insert({
+          semester_id: semesterId,
+          status: final.status,
+          summary: {
+            ...final.stats,
+            unfilled: final.unfilled,
+            starved: final.starved,
+            unmet_preferences: final.unmet_preferences || [],
+          }
+        })
         .select().single();
 
       if (runErr) {
@@ -588,15 +771,19 @@ router.post("/allocate", requireAdmin, async (req, res) => {
 
 // GET collection status and overview (Admin view & Faculty check)
 router.get("/requirements/status", async (req, res) => {
+  const semesterId = await getTargetSemester(req);
+  const settingKey = `collecting_requirements_${semesterId}`;
+
   try {
-    const [{ data: setting }, { data: courses }, { data: reqs }, { data: tas }] = await Promise.all([
+    const [{ data: semSetting }, { data: genSetting }, { data: courses }, { data: reqs }, { data: tas }] = await Promise.all([
+      supabase.from("department_settings").select("value").eq("key", settingKey).maybeSingle(),
       supabase.from("department_settings").select("value").eq("key", "collecting_requirements").maybeSingle(),
-      supabase.from("courses").select("course_code, course_name, discipline, program, instructors").order("course_code"),
-      supabase.from("ta_requirements").select("course_code, tas_required, preferred_ta_rolls, submitted_by, updated_at"),
-      supabase.from("ta_details").select("roll_no, name, program, email, thesis_supervisor").order("roll_no"),
+      supabase.from("courses").select("course_code, course_name, discipline, program, instructors").eq("semester_id", semesterId).order("course_code"),
+      supabase.from("ta_requirements").select("course_code, tas_required, preferred_ta_rolls, submitted_by, updated_at").eq("semester_id", semesterId),
+      supabase.from("ta_details").select("roll_no, name, program, email, thesis_supervisor").eq("semester_id", semesterId).order("roll_no"),
     ]);
 
-    const isCollecting = setting?.value?.active ?? false;
+    const isCollecting = semSetting?.value?.active ?? genSetting?.value?.active ?? false;
     const reqsByCode = Object.fromEntries((reqs || []).map((r) => [r.course_code, r]));
 
     const coursesList = (courses || []).map((c) => {
@@ -619,6 +806,7 @@ router.get("/requirements/status", async (req, res) => {
     const pendingCount = coursesList.length - submittedCount;
 
     res.json({
+      semesterId,
       isCollecting,
       totalCourses: coursesList.length,
       submittedCount,
@@ -634,20 +822,26 @@ router.get("/requirements/status", async (req, res) => {
 // Admin toggle: start or stop collecting requirements
 router.post("/requirements/toggle-collection", requireAdmin, async (req, res) => {
   const active = req.body?.active !== undefined ? !!req.body.active : true;
+  const semesterId = await getTargetSemester(req);
+  const settingKey = `collecting_requirements_${semesterId}`;
+
   try {
-    const { data, error } = await supabase
-      .from("department_settings")
-      .upsert({
+    await Promise.all([
+      supabase.from("department_settings").upsert({
+        key: settingKey,
+        value: { active, started_at: new Date().toISOString() },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" }),
+      supabase.from("department_settings").upsert({
         key: "collecting_requirements",
         value: { active, started_at: new Date().toISOString() },
         updated_at: new Date().toISOString(),
-      }, { onConflict: "key" })
-      .select()
-      .single();
+      }, { onConflict: "key" }),
+    ]);
 
-    if (error) throw new Error(error.message);
     res.json({
       isCollecting: active,
+      semesterId,
       message: active ? "TA requirements collection is now OPEN." : "TA requirements collection is now CLOSED.",
     });
   } catch (err) {
@@ -661,16 +855,19 @@ router.get("/requirements/my-courses", async (req, res) => {
   const userEmail = (user?.email || "").toLowerCase().trim();
   const userName = user?.name || "";
   const isAdmin = user?.role === "admin";
+  const semesterId = await getTargetSemester(req);
+  const settingKey = `collecting_requirements_${semesterId}`;
 
   try {
-    const [{ data: setting }, { data: courses }, { data: reqs }, { data: tas }] = await Promise.all([
+    const [{ data: semSetting }, { data: genSetting }, { data: courses }, { data: reqs }, { data: tas }] = await Promise.all([
+      supabase.from("department_settings").select("value").eq("key", settingKey).maybeSingle(),
       supabase.from("department_settings").select("value").eq("key", "collecting_requirements").maybeSingle(),
-      supabase.from("courses").select("course_code, course_name, instructors, lecture_slot, tutorial_slot, lab_slot").order("course_code"),
-      supabase.from("ta_requirements").select("course_code, tas_required, preferred_ta_rolls, submitted_by, updated_at"),
-      supabase.from("ta_details").select("roll_no, name, program, email, thesis_supervisor").order("roll_no"),
+      supabase.from("courses").select("course_code, course_name, instructors, lecture_slot, tutorial_slot, lab_slot").eq("semester_id", semesterId).order("course_code"),
+      supabase.from("ta_requirements").select("course_code, tas_required, preferred_ta_rolls, submitted_by, updated_at").eq("semester_id", semesterId),
+      supabase.from("ta_details").select("roll_no, name, program, email, thesis_supervisor").eq("semester_id", semesterId).order("roll_no"),
     ]);
 
-    const isCollecting = setting?.value?.active ?? false;
+    const isCollecting = semSetting?.value?.active ?? genSetting?.value?.active ?? false;
     const reqsByCode = Object.fromEntries((reqs || []).map((r) => [r.course_code, r]));
 
     // Match faculty courses
@@ -701,6 +898,7 @@ router.get("/requirements/my-courses", async (req, res) => {
     }
 
     res.json({
+      semesterId,
       isCollecting,
       courses: facultyCourses,
       taList: tas || [],
@@ -714,6 +912,7 @@ router.get("/requirements/my-courses", async (req, res) => {
 router.post("/requirements/submit", async (req, res) => {
   const { course_code, tas_required, preferred_ta_rolls } = req.body;
   if (!course_code) return res.status(400).json({ error: "Missing course_code" });
+  const semesterId = await getTargetSemester(req);
   
   const count = Number(tas_required);
   if (!Number.isInteger(count) || count < 0) {
@@ -732,6 +931,7 @@ router.post("/requirements/submit", async (req, res) => {
         .from("courses")
         .select("instructors")
         .eq("course_code", course_code)
+        .eq("semester_id", semesterId)
         .maybeSingle();
 
       if (cErr || !course) return res.status(404).json({ error: "Course not found" });
@@ -758,8 +958,8 @@ router.post("/requirements/submit", async (req, res) => {
     }
 
     if (count === 0) {
-      // If 0, remove requirement or store as 0
-      await supabase.from("ta_requirements").delete().eq("course_code", course_code);
+      // If 0, remove requirement
+      await supabase.from("ta_requirements").delete().eq("course_code", course_code).eq("semester_id", semesterId);
       return res.json({ success: true, message: `Removed requirement for ${course_code}.` });
     }
 
@@ -767,11 +967,12 @@ router.post("/requirements/submit", async (req, res) => {
       .from("ta_requirements")
       .upsert({
         course_code,
+        semester_id: semesterId,
         tas_required: count,
         preferred_ta_rolls: cleanPreferred,
         submitted_by: `${userName} (${userEmail})`,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "course_code" })
+      }, { onConflict: "course_code,semester_id" })
       .select()
       .single();
 
@@ -787,9 +988,171 @@ router.post("/requirements/submit", async (req, res) => {
   }
 });
 
+async function enrichRunSummary(run, semesterId) {
+  if (!run || !run.summary) return run;
+  if (run.summary.unmet_preferences && run.summary.preferred_requested !== undefined) {
+    return run;
+  }
+
+  try {
+    const [cRes, tRes, ttRes, regRes, reqRes, aRes] = await Promise.all([
+      supabase.from("courses").select("course_code, course_name, instructors, lecture_slot, tutorial_slot, lab_slot").eq("semester_id", semesterId),
+      supabase.from("ta_details").select("roll_no, name, program, thesis_supervisor").eq("semester_id", semesterId),
+      supabase.from("timetable").select("*").eq("semester_id", semesterId),
+      supabase.from("course_registration").select("student_roll_no, course_code").eq("semester_id", semesterId),
+      supabase.from("ta_requirements").select("course_code, tas_required, preferred_ta_rolls").eq("semester_id", semesterId),
+      supabase.from("allocations").select("course_code, ta_roll_no").eq("run_id", run.id),
+    ]);
+
+    const courses = Object.fromEntries((cRes.data || []).map((c) => [c.course_code, c]));
+    const tas = Object.fromEntries((tRes.data || []).map((t) => [t.roll_no, t]));
+    const timetable = ttRes.data || [];
+    const registrations = regRes.data || [];
+    const requirements = reqRes.data || [];
+    const allocations = aRes.data || [];
+
+    const slotIndex = buildSlotIndex(timetable);
+    const courseCells = {};
+    const cellLookup = {};
+    for (const [code, c] of Object.entries(courses)) {
+      const l = resolveSlots(c.lecture_slot, slotIndex);
+      const t = resolveSlots(c.tutorial_slot, slotIndex);
+      const b = resolveSlots(c.lab_slot, slotIndex);
+      const union = new Set([...l, ...t, ...b]);
+      courseCells[code] = union;
+      cellLookup[code] = union;
+      cellLookup[code.toUpperCase()] = union;
+      for (const part of code.split("/")) {
+        const p = part.trim();
+        if (p) {
+          cellLookup[p] = union;
+          cellLookup[p.toUpperCase()] = union;
+        }
+      }
+    }
+
+    const regByRoll = {};
+    for (const r of registrations) {
+      const roll = (r.student_roll_no || "").trim().toUpperCase();
+      if (!regByRoll[roll]) regByRoll[roll] = [];
+      regByRoll[roll].push((r.course_code || "").trim());
+    }
+
+    const taBusy = {};
+    for (const [roll, t] of Object.entries(tas)) {
+      const cells = new Set();
+      for (const code of (regByRoll[roll.toUpperCase()] || [])) {
+        for (const cell of (cellLookup[code] || cellLookup[code.toUpperCase()] || [])) {
+          cells.add(cell);
+        }
+      }
+      taBusy[roll] = cells;
+    }
+
+    const allocByCourse = {};
+    const allocByTa = {};
+    for (const a of allocations) {
+      if (!allocByCourse[a.course_code]) allocByCourse[a.course_code] = [];
+      allocByCourse[a.course_code].push(a.ta_roll_no);
+      allocByTa[a.ta_roll_no] = a.course_code;
+    }
+
+    const unmetPreferences = [];
+    let totalPreferredRequested = 0;
+    let supervisorPreferredRequested = 0;
+    let supervisorPreferredHonoured = 0;
+
+    for (const req of requirements) {
+      const code = req.course_code;
+      const course = courses[code] || {};
+      const instructors = splitPeople(course.instructors || "");
+      const cCells = courseCells[code] || new Set();
+      const tasNeeded = parseInt(req.tas_required || "1", 10);
+      const allocatedToThis = new Set(allocByCourse[code] || []);
+
+      const raw = (req.preferred_ta_rolls || "").trim();
+      const rolls = raw.split(/[;,]/).map((p) => p.trim()).filter(Boolean);
+
+      for (let rank = 1; rank <= rolls.length; rank++) {
+        const roll = rolls[rank - 1];
+        totalPreferredRequested++;
+        const ta = tas[roll];
+        const isSup = ta ? instructors.some((i) => samePerson(ta.thesis_supervisor || "", i)) : false;
+        if (isSup) supervisorPreferredRequested++;
+
+        if (allocatedToThis.has(roll)) {
+          if (isSup) supervisorPreferredHonoured++;
+          continue;
+        }
+
+        let reason = "Not allocated";
+        let taName = roll;
+        let taProgram = "—";
+        let thesisSup = "—";
+
+        if (!ta) {
+          reason = "Roll number not found in student TA database";
+        } else {
+          taName = ta.name || roll;
+          taProgram = ta.program || "";
+          thesisSup = ta.thesis_supervisor || "—";
+          const clashCells = [...(taBusy[roll] || [])].filter((cell) => cCells.has(cell));
+          if (clashCells.length > 0) {
+            const clashing = (regByRoll[roll.toUpperCase()] || []).filter(
+              (ec) => [...(cellLookup[ec] || cellLookup[ec.toUpperCase()] || [])].some((cell) => cCells.has(cell))
+            );
+            const ccStr = [...new Set(clashing)].join(", ") || "enrolled coursework";
+            reason = `Timetable clash with enrolled course: ${ccStr}`;
+          } else if (allocByTa[roll]) {
+            const otherC = allocByTa[roll];
+            const otherCourse = courses[otherC] || {};
+            const otherInst = splitPeople(otherCourse.instructors || "");
+            const otherIsSup = otherInst.some((i) => samePerson(ta.thesis_supervisor || "", i));
+            if (otherIsSup) {
+              reason = `Assigned to thesis supervisor’s course (${otherC})`;
+            } else {
+              reason = `Assigned to ${otherC} (higher priority / department balance)`;
+            }
+          } else if (allocatedToThis.size >= tasNeeded) {
+            reason = `Course demand filled (${tasNeeded} TAs) by higher-priority candidates`;
+          } else {
+            reason = "Not allocated (department seat balancing)";
+          }
+        }
+
+        unmetPreferences.push({
+          course_code: code,
+          course_name: course.course_name || code,
+          instructors: course.instructors || "",
+          roll_no: roll,
+          ta_name: taName,
+          ta_program: taProgram,
+          thesis_supervisor: thesisSup,
+          rank,
+          is_supervisor: isSup,
+          reason,
+        });
+      }
+    }
+
+    run.summary = {
+      ...(run.summary || {}),
+      preferred_requested: totalPreferredRequested,
+      supervisor_preferred_requested: supervisorPreferredRequested,
+      supervisor_preferred_honoured: supervisorPreferredHonoured,
+      unmet_preferences: unmetPreferences,
+    };
+  } catch (err) {
+    console.error("enrichRunSummary error:", err);
+  }
+  return run;
+}
+
 router.get("/runs", async (req, res) => {
+  const semesterId = await getTargetSemester(req);
   let query = supabase.from("allocation_runs")
-    .select("id, created_at, status, summary, is_published")
+    .select("id, created_at, status, summary, is_published, semester_id")
+    .eq("semester_id", semesterId)
     .order("id", { ascending: false }).limit(20);
 
   if (req.user?.role !== "admin") {
@@ -798,7 +1161,12 @@ router.get("/runs", async (req, res) => {
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ runs: data });
+  
+  const enrichedRuns = await Promise.all(
+    (data || []).map((r) => enrichRunSummary(r, semesterId))
+  );
+
+  res.json({ runs: enrichedRuns });
 });
 
 router.patch("/runs/:id/publish", requireAdmin, async (req, res) => {
@@ -815,18 +1183,89 @@ router.patch("/runs/:id/publish", requireAdmin, async (req, res) => {
 });
 
 /* ------------------------------------------------------------------ *
- * Role-Based View for Courses & Assigned TAs (Faculty, TA, Student)
+ * Timetable & Slot Clash Resolution Helpers
+ * ------------------------------------------------------------------ */
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const dayOrder = Object.fromEntries(DAYS.map((d, i) => [d, i]));
+
+function buildSlotIndex(timetable) {
+  const theory = {};
+  const lab = {};
+  for (const row of timetable || []) {
+    const dIdx = dayOrder[row.day] ?? 99;
+    const key = `${dIdx}_${row.start_time}`;
+    const cell = `${row.day}|${row.start_time}`;
+    if (row.theory_slot) {
+      if (!theory[row.theory_slot]) theory[row.theory_slot] = [];
+      theory[row.theory_slot].push({ key, cell });
+    }
+    if (row.lab_slot) {
+      if (!lab[row.lab_slot]) lab[row.lab_slot] = [];
+      lab[row.lab_slot].push({ key, cell });
+    }
+  }
+  const index = {};
+  for (const src of [theory, lab]) {
+    for (const [code, items] of Object.entries(src)) {
+      items.sort((a, b) => a.key.localeCompare(b.key));
+      index[code] = items.map((x) => x.cell);
+    }
+  }
+  return index;
+}
+
+const TOKEN_RE = /^([A-Z]+)(\d*)$/;
+
+function resolveSlots(spec, index) {
+  const cells = new Set();
+  if (!spec) return cells;
+  const tokens = spec.split(/[,&\s]+/).filter(Boolean);
+  for (const token of tokens) {
+    const m = token.trim().match(TOKEN_RE);
+    if (!m) continue;
+    const [, letters, digits] = m;
+    const codes = (letters.length === 1 || digits) ? [letters] : letters.split("");
+    for (const code of codes) {
+      const occ = index[code.length === 1 ? code[0] : code] || [];
+      if (!occ.length) continue;
+      if (digits) {
+        for (const d of digits) {
+          const idx = parseInt(d, 10) - 1;
+          if (idx >= 0 && idx < occ.length) {
+            cells.add(occ[idx]);
+          }
+        }
+      } else {
+        for (const c of occ) cells.add(c);
+      }
+    }
+  }
+  return cells;
+}
+
+/* ------------------------------------------------------------------ *
+ * Role-Based View for Courses & Assigned TAs (Faculty, TA, Student, Admin)
  * ------------------------------------------------------------------ */
 router.get("/role-view", async (req, res) => {
   const user = req.user;
   const role = user?.role || "student";
   const userEmail = (user?.email || "").toLowerCase().trim();
   const userName = user?.name || "";
+  const semesterId = await getTargetSemester(req);
 
   try {
-    // 1. Find the latest published allocation run (or latest run if admin)
+    const { data: allSemesters } = await supabase
+      .from("semesters")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    const currentSemester = (allSemesters || []).find((s) => s.id === semesterId) ||
+      (allSemesters || []).find((s) => s.is_active) || null;
+
+    // 1. Find the latest published allocation run (or latest run if admin) for this semester
     let runQuery = supabase.from("allocation_runs")
-      .select("id, status, is_published, created_at")
+      .select("id, status, is_published, created_at, semester_id")
+      .eq("semester_id", semesterId)
       .order("id", { ascending: false });
 
     if (role !== "admin") {
@@ -838,21 +1277,16 @@ router.get("/role-view", async (req, res) => {
 
     const activeRun = runs?.[0] || null;
 
-    if (!activeRun) {
-      return res.json({
-        role,
-        isPublished: false,
-        runId: null,
-        message: "No published TA allocations are currently available.",
-        data: [],
-      });
-    }
-
-    // 2. Load allocations, courses, and ta_details
-    const [allocRes, courseRes, taRes] = await Promise.all([
-      supabase.from("allocations").select("*").eq("run_id", activeRun.id),
-      supabase.from("courses").select("course_code, course_name, instructors, lecture_slot, tutorial_slot, lab_slot"),
-      supabase.from("ta_details").select("roll_no, name, program, thesis_supervisor, email"),
+    // 2. Load allocations, courses, ta_details, timetable, course_registration, and ta_requirements for this semester
+    const [allocRes, courseRes, taRes, ttRes, regRes, reqRes] = await Promise.all([
+      activeRun
+        ? supabase.from("allocations").select("*").eq("run_id", activeRun.id)
+        : { data: [] },
+      supabase.from("courses").select("course_code, course_name, instructors, lecture_slot, tutorial_slot, lab_slot").eq("semester_id", semesterId),
+      supabase.from("ta_details").select("roll_no, name, program, thesis_supervisor, email").eq("semester_id", semesterId),
+      supabase.from("timetable").select("*").eq("semester_id", semesterId),
+      supabase.from("course_registration").select("student_roll_no, course_code").eq("semester_id", semesterId),
+      supabase.from("ta_requirements").select("course_code, tas_required, preferred_ta_rolls").eq("semester_id", semesterId),
     ]);
 
     if (allocRes.error) throw new Error(allocRes.error.message);
@@ -860,6 +1294,94 @@ router.get("/role-view", async (req, res) => {
     if (taRes.error) throw new Error(taRes.error.message);
 
     const courses = courseRes.data || [];
+    const timetable = ttRes.data || [];
+    const registrations = regRes.data || [];
+    const reqsByCode = Object.fromEntries((reqRes.data || []).map((r) => [r.course_code, r]));
+
+    if (!activeRun && courses.length === 0) {
+      return res.json({
+        role,
+        semesterId,
+        currentSemester,
+        semesters: allSemesters || [],
+        isPublished: false,
+        runId: null,
+        message: "No courses or allocations are currently available for this semester.",
+        courses: [],
+        allTAs: [],
+      });
+    }
+
+    // Precalculate slot coordinates and course footprints for clash detection
+    const slotIndex = buildSlotIndex(timetable);
+    const courseCells = {};
+    const cellLookup = {};
+
+    for (const c of courses) {
+      const l = resolveSlots(c.lecture_slot, slotIndex);
+      const t = resolveSlots(c.tutorial_slot, slotIndex);
+      const b = resolveSlots(c.lab_slot, slotIndex);
+      const union = new Set([...l, ...t, ...b]);
+      courseCells[c.course_code] = union;
+      cellLookup[c.course_code] = union;
+      cellLookup[c.course_code.toUpperCase()] = union;
+      for (const part of c.course_code.split("/")) {
+        const p = part.trim();
+        if (p) {
+          cellLookup[p] = union;
+          cellLookup[p.toUpperCase()] = union;
+        }
+      }
+    }
+
+    // Map enrolled courses and busy time cells for all TAs
+    const regByRoll = {};
+    for (const r of registrations) {
+      const roll = (r.student_roll_no || "").trim().toUpperCase();
+      if (!regByRoll[roll]) regByRoll[roll] = [];
+      regByRoll[roll].push((r.course_code || "").trim());
+    }
+
+    const taBusy = {};
+    for (const t of taRes.data || []) {
+      const roll = (t.roll_no || "").trim().toUpperCase();
+      const busyCells = new Set();
+      const enrolledCourses = regByRoll[roll] || [];
+      for (const code of enrolledCourses) {
+        const cells = cellLookup[code] || cellLookup[code.toUpperCase()] || new Set();
+        for (const cell of cells) busyCells.add(cell);
+      }
+      taBusy[roll] = { busyCells, enrolledCourses };
+    }
+
+    // Precalculate timetable clash map for each course: { [course_code]: { [ta_roll]: clashing_course } }
+    const courseClashes = {};
+    for (const c of courses) {
+      const cCells = courseCells[c.course_code] || new Set();
+      courseClashes[c.course_code] = {};
+      if (cCells.size > 0) {
+        for (const t of taRes.data || []) {
+          const roll = (t.roll_no || "").trim().toUpperCase();
+          const { busyCells, enrolledCourses } = taBusy[roll] || {};
+          if (!busyCells || busyCells.size === 0) continue;
+          for (const cell of cCells) {
+            if (busyCells.has(cell)) {
+              let clashingCourse = null;
+              for (const ec of (enrolledCourses || [])) {
+                const ecCells = cellLookup[ec] || cellLookup[ec.toUpperCase()] || new Set();
+                if (ecCells.has(cell)) {
+                  clashingCourse = ec;
+                  break;
+                }
+              }
+              courseClashes[c.course_code][roll] = clashingCourse || "Coursework schedule";
+              break;
+            }
+          }
+        }
+      }
+    }
+
     const tasByRoll = Object.fromEntries((taRes.data || []).map((t) => [t.roll_no, t]));
     const tasByEmail = Object.fromEntries(
       (taRes.data || [])
@@ -902,17 +1424,46 @@ router.get("/role-view", async (req, res) => {
       assigned_to: taAssignmentMap[t.roll_no] || null,
     }));
 
+    // Helper to build demanded_tas object for a course
+    function getDemandedTasForCourse(courseCode) {
+      const reqItem = reqsByCode[courseCode];
+      if (!reqItem) return null;
+      const prefRolls = (reqItem.preferred_ta_rolls || "")
+        .split(/[;,]/)
+        .map((r) => r.trim())
+        .filter(Boolean);
+
+      const prefList = prefRolls.map((roll, idx) => {
+        const full = tasByRoll[roll.toUpperCase()] || tasByRoll[roll] || {};
+        const assignment = taAssignmentMap[roll.toUpperCase()] || taAssignmentMap[roll] || null;
+        return {
+          rank: idx + 1,
+          roll_no: roll,
+          name: full.name || roll,
+          program: full.program || "Student",
+          thesis_supervisor: full.thesis_supervisor || "—",
+          email: full.email || "",
+          assigned_to_this_course: assignment?.course_code === courseCode,
+          assigned_to: assignment,
+        };
+      });
+
+      return {
+        tas_required: reqItem.tas_required,
+        preferred_rolls: prefRolls,
+        preferred_tas: prefList,
+      };
+    }
+
     // 3. Filter and project based on role
     if (role === "faculty") {
       // Find courses where the faculty member is an instructor
-      // Name matching using token overlap or surname match against userName
       const myCourses = [];
 
       for (const c of courses) {
         const instructors = splitPeople(c.instructors);
         const isTeaching = instructors.some((i) => {
           if (samePerson(i, userName)) return true;
-          // check email prefix if name contains it
           const emailPrefix = userEmail.split("@")[0];
           if (i.toLowerCase().includes(emailPrefix)) return true;
           return false;
@@ -926,35 +1477,40 @@ router.get("/role-view", async (req, res) => {
             co_instructors: instructors.filter((i) => !samePerson(i, userName)),
             slots: { lecture: c.lecture_slot, tutorial: c.tutorial_slot, lab: c.lab_slot },
             tas: courseAllocations[c.course_code] || [],
+            ta_clashes: courseClashes[c.course_code] || {},
+            demanded_tas: getDemandedTasForCourse(c.course_code),
           });
         }
       }
 
-      // Fetch recent change requests submitted by this faculty member
+      // Fetch recent change requests submitted by this faculty member for this semester
       const { data: facultyRequests } = await supabase
         .from("ta_change_requests")
         .select("*")
+        .eq("semester_id", semesterId)
         .eq("faculty_email", userEmail)
         .order("created_at", { ascending: false });
 
       return res.json({
         role: "faculty",
         isAdmin: user?.role === "admin",
-        isPublished: activeRun.is_published,
-        runId: activeRun.id,
+        semesterId,
+        currentSemester,
+        semesters: allSemesters || [],
+        isPublished: activeRun ? activeRun.is_published : false,
+        runId: activeRun ? activeRun.id : null,
         user: { name: userName, email: userEmail },
         courses: myCourses,
         allTAs: allTAsList,
+        course_clashes: courseClashes,
         change_requests: facultyRequests || [],
       });
     }
 
     if (role === "ta") {
-      // Look up current user's roll_no from email or roll match
       const taRecord = tasByEmail[userEmail] || tasByRoll[userEmail.split("@")[0].toUpperCase()] || null;
       const myRoll = taRecord?.roll_no || userEmail.split("@")[0].toUpperCase();
 
-      // Find allocations for this TA
       const myAllocations = (allocRes.data || []).filter(
         (a) => a.ta_roll_no?.toUpperCase() === myRoll.toUpperCase()
       );
@@ -979,15 +1535,17 @@ router.get("/role-view", async (req, res) => {
       return res.json({
         role: "ta",
         isAdmin: user?.role === "admin",
-        isPublished: activeRun.is_published,
-        runId: activeRun.id,
+        semesterId,
+        currentSemester,
+        semesters: allSemesters || [],
+        isPublished: activeRun ? activeRun.is_published : false,
+        runId: activeRun ? activeRun.id : null,
         user: { name: userName, email: userEmail, roll_no: myRoll },
         assigned_courses: assignedCourses,
       });
     }
 
-    // Default for student (and faculty/admin when viewing all or as student)
-    // Students see list of all courses and corresponding faculties and TAs (only name, roll/id, email)
+    // Default for student and Admin view
     const publicCourseList = courses.map((c) => {
       const tas = (courseAllocations[c.course_code] || []).map((t) => ({
         roll_no: t.roll_no,
@@ -1001,17 +1559,24 @@ router.get("/role-view", async (req, res) => {
         course_code: c.course_code,
         course_name: c.course_name,
         instructors: c.instructors,
+        slots: { lecture: c.lecture_slot, tutorial: c.tutorial_slot, lab: c.lab_slot },
         tas,
+        ta_clashes: courseClashes[c.course_code] || {},
+        demanded_tas: getDemandedTasForCourse(c.course_code),
       };
     });
 
     return res.json({
       role: "student",
       isAdmin: user?.role === "admin",
-      isPublished: activeRun.is_published,
-      runId: activeRun.id,
+      semesterId,
+      currentSemester,
+      semesters: allSemesters || [],
+      isPublished: activeRun ? activeRun.is_published : false,
+      runId: activeRun ? activeRun.id : null,
       courses: publicCourseList,
       allTAs: allTAsList,
+      course_clashes: courseClashes,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -1058,9 +1623,15 @@ router.get("/requests", async (req, res) => {
   const user = req.user;
   const isAdmin = user?.role === "admin";
   const userEmail = (user?.email || "").toLowerCase().trim();
+  const semesterId = await getTargetSemester(req);
 
   try {
-    let q = supabase.from("ta_change_requests").select("*").order("created_at", { ascending: false });
+    let q = supabase
+      .from("ta_change_requests")
+      .select("*")
+      .eq("semester_id", semesterId)
+      .order("created_at", { ascending: false });
+
     if (!isAdmin) {
       q = q.eq("faculty_email", userEmail);
     }
@@ -1068,6 +1639,7 @@ router.get("/requests", async (req, res) => {
     const { data: activeRuns } = await supabase
       .from("allocation_runs")
       .select("id, is_published")
+      .eq("semester_id", semesterId)
       .order("id", { ascending: false })
       .limit(1);
 
@@ -1080,7 +1652,7 @@ router.get("/requests", async (req, res) => {
 
     const [{ data: requests, error }, { data: courses }, { data: allocs }] = await Promise.all([
       q,
-      supabase.from("courses").select("course_code, course_name, instructors"),
+      supabase.from("courses").select("course_code, course_name, instructors").eq("semester_id", semesterId),
       allocQuery,
     ]);
 
@@ -1117,6 +1689,7 @@ router.get("/requests", async (req, res) => {
     res.json({
       requests: enriched,
       pendingCount,
+      semesterId,
       activeRunId: activeRun?.id || null,
       isPublished: activeRun?.is_published || false,
     });
@@ -1132,6 +1705,7 @@ router.post("/requests", async (req, res) => {
   const userEmail = (user?.email || "").toLowerCase().trim();
   const userName = user?.name || userEmail;
   const { course_code, request_type, ta_roll_no, reason } = req.body;
+  const semesterId = await getTargetSemester(req);
 
   if (!course_code || !request_type || !ta_roll_no) {
     return res.status(400).json({ error: "Missing required fields: course_code, request_type, ta_roll_no." });
@@ -1144,6 +1718,7 @@ router.post("/requests", async (req, res) => {
     const { data: runs } = await supabase
       .from("allocation_runs")
       .select("id, is_published")
+      .eq("semester_id", semesterId)
       .order("id", { ascending: false })
       .limit(1);
 
@@ -1156,6 +1731,7 @@ router.post("/requests", async (req, res) => {
       .from("ta_details")
       .select("roll_no, name, program, email")
       .eq("roll_no", ta_roll_no.trim())
+      .eq("semester_id", semesterId)
       .maybeSingle();
 
     const cleanRoll = taRecord?.roll_no || ta_roll_no.trim().toUpperCase();
@@ -1179,6 +1755,7 @@ router.post("/requests", async (req, res) => {
     const { data: inserted, error: insertError } = await supabase
       .from("ta_change_requests")
       .insert([{
+        semester_id: semesterId,
         run_id: activeRun.id,
         course_code: course_code.trim(),
         faculty_email: userEmail,
@@ -1324,23 +1901,26 @@ router.post("/allocations/manual-add", requireAdmin, async (req, res) => {
   if (!course_code || !ta_roll_no) {
     return res.status(400).json({ error: "Missing course_code or ta_roll_no" });
   }
+  const semesterId = await getTargetSemester(req);
 
   try {
     const { data: runs } = await supabase
       .from("allocation_runs")
       .select("id, is_published")
+      .eq("semester_id", semesterId)
       .order("id", { ascending: false })
       .limit(1);
 
     const activeRun = runs?.[0];
     if (!activeRun) {
-      return res.status(400).json({ error: "No allocation run found." });
+      return res.status(400).json({ error: "No allocation run found for this semester." });
     }
 
     const { data: taRecord } = await supabase
       .from("ta_details")
       .select("roll_no, name, program")
       .eq("roll_no", ta_roll_no.trim())
+      .eq("semester_id", semesterId)
       .maybeSingle();
 
     const cleanRoll = taRecord?.roll_no || ta_roll_no.trim().toUpperCase();
@@ -1385,17 +1965,19 @@ router.post("/allocations/manual-remove", requireAdmin, async (req, res) => {
   if (!course_code || !ta_roll_no) {
     return res.status(400).json({ error: "Missing course_code or ta_roll_no" });
   }
+  const semesterId = await getTargetSemester(req);
 
   try {
     const { data: runs } = await supabase
       .from("allocation_runs")
       .select("id")
+      .eq("semester_id", semesterId)
       .order("id", { ascending: false })
       .limit(1);
 
     const activeRun = runs?.[0];
     if (!activeRun) {
-      return res.status(400).json({ error: "No allocation run found." });
+      return res.status(400).json({ error: "No allocation run found for this semester." });
     }
 
     const cleanRoll = ta_roll_no.trim().toUpperCase();

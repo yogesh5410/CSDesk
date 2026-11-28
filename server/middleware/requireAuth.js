@@ -75,9 +75,54 @@ export async function requireAuth(req, res, next) {
       if (simUser) {
         req.user.email = simUser.email;
         req.user.name = simUser.name;
-        req.user.role = simUser.role;
+        if (!simulatedRole) req.user.role = simUser.role;
       } else {
         req.user.email = cleanEmail;
+      }
+    } catch {
+      // ignore
+    }
+  } else if (req.user.role === "faculty") {
+    // If testing as faculty without explicit simulated user, ensure email belongs to a faculty
+    try {
+      const { data: isFac } = await supabase
+        .from("users")
+        .select("role")
+        .eq("email", req.user.email)
+        .maybeSingle();
+      if (isFac?.role !== "faculty") {
+        const { data: defaultFac } = await supabase
+          .from("users")
+          .select("email, name")
+          .eq("role", "faculty")
+          .order("name")
+          .limit(1);
+        if (defaultFac?.[0]) {
+          req.user.email = defaultFac[0].email;
+          req.user.name = defaultFac[0].name;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  } else if (req.user.role === "ta") {
+    try {
+      const { data: isTa } = await supabase
+        .from("users")
+        .select("role")
+        .eq("email", req.user.email)
+        .maybeSingle();
+      if (isTa?.role !== "ta") {
+        const { data: defaultTa } = await supabase
+          .from("users")
+          .select("email, name")
+          .eq("role", "ta")
+          .order("name")
+          .limit(1);
+        if (defaultTa?.[0]) {
+          req.user.email = defaultTa[0].email;
+          req.user.name = defaultTa[0].name;
+        }
       }
     } catch {
       // ignore

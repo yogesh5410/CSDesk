@@ -11,17 +11,21 @@ import { supabase } from "../supabaseClient.js";
  * transaction -- there, a mid-insert failure leaves the table partially
  * loaded, and the caller is told so.
  */
-export async function replaceTable(table, rows, keyColumn, allowed) {
+export async function replaceTable(table, rows, keyColumn, allowed, semesterId = null) {
   if (!allowed.includes(table)) {
     throw new Error(`refusing to replace unknown table '${table}'`);
   }
+  const scopedRows = (semesterId && table !== "users")
+    ? rows.map((r) => ({ ...r, semester_id: semesterId }))
+    : rows;
+
   if (process.env.SUPABASE_DB_URL) {
-    return replaceAtomic(table, rows);
+    return replaceAtomic(table, scopedRows, semesterId);
   }
-  return replaceBestEffort(table, rows, keyColumn);
+  return replaceBestEffort(table, scopedRows, keyColumn, semesterId);
 }
 
-async function replaceAtomic(table, rows) {
+async function replaceAtomic(table, rows, semesterId) {
   const client = new pg.Client({
     connectionString: process.env.SUPABASE_DB_URL,
     ssl: { rejectUnauthorized: false },
@@ -29,7 +33,11 @@ async function replaceAtomic(table, rows) {
   await client.connect();
   try {
     await client.query("BEGIN");
-    await client.query(`DELETE FROM public."${table}"`);
+    if (semesterId && table !== "users") {
+      await client.query(`DELETE FROM public."${table}" WHERE semester_id = $1`, [semesterId]);
+    } else {
+      await client.query(`DELETE FROM public."${table}"`);
+    }
 
     if (rows.length) {
       const columns = Object.keys(rows[0]);
@@ -61,8 +69,14 @@ async function replaceAtomic(table, rows) {
   }
 }
 
-async function replaceBestEffort(table, rows, keyColumn) {
-  const del = await supabase.from(table).delete().not(keyColumn, "is", null);
+async function replaceBestEffort(table, rows, keyColumn, semesterId) {
+  let delQuery = supabase.from(table).delete();
+  if (semesterId && table !== "users") {
+    delQuery = delQuery.eq("semester_id", semesterId);
+  } else {
+    delQuery = delQuery.not(keyColumn, "is", null);
+  }
+  const del = await delQuery;
   if (del.error) throw new Error(`clearing ${table}: ${del.error.message}`);
 
   for (let i = 0; i < rows.length; i += 500) {

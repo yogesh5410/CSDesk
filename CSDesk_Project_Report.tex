@@ -1,0 +1,296 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\definecolor{iitbblue}{RGB}{23, 55, 94}
+\definecolor{accentindigo}{RGB}{67, 56, 202}
+\definecolor{codebg}{RGB}{248, 250, 252}
+\definecolor{codeborder}{RGB}{226, 232, 240}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=iitbblue,
+    urlcolor=accentindigo,
+    citecolor=iitbblue,
+    pdftitle={CS Office Automation (CSDesk) - CSQ401 Project Report},
+    pdfauthor={Yogesh, Durgesh Nama}
+}
+
+\lstset{
+    backgroundcolor=\color{codebg},
+    frame=single,
+    rulecolor=\color{codeborder},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    showstringspaces=false,
+    tabsize=2
+}
+
+\pagestyle{fancy}
+\setlength{\headheight}{15pt}
+\fancyhf{}
+\fancyhead[L]{\small\color{gray} CSQ401: B.Tech Project 1 --- CS Office Automation (CSDesk)}
+\fancyhead[R]{\small\color{gray} IIT Bhilai}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\begin{document}
+
+% ==============================================================================
+% FRONT PAGE
+% ==============================================================================
+\begin{titlepage}
+    \centering
+    \vspace*{0.2cm}
+    \includegraphics[width=4.2cm]{iit_bhilai_logo.png}\\[0.4cm]
+    {\Large\bfseries\color{iitbblue} INDIAN INSTITUTE OF TECHNOLOGY, BHILAI\par}
+    \vspace{0.2cm}
+    {\large Department of Computer Science and Engineering\par}
+    \vspace{0.7cm}
+    \rule{\textwidth}{1.5pt}\\[0.4cm]
+    {\Huge\bfseries\color{iitbblue} CS Office Automation (CSDesk)\par}
+    \vspace{0.25cm}
+    {\large\itshape Automated Teaching Assistant Allocation, Laboratory Room Scheduling, and Remote Lab Fleet Management Platform\par}
+    \rule{\textwidth}{1.5pt}
+    \vspace{1.0cm}
+
+    \begin{tabular}{rl}
+        \textbf{Course Code:} & CSQ401 \\[0.25cm]
+        \textbf{Course Name:} & B.Tech Project 1 \\[0.25cm]
+        \textbf{Semester:} & 2026-27 M \\[0.25cm]
+        \textbf{Instructor:} & Prof. Vishwesh Jatala \\[0.25cm]
+        \textbf{Deployed Link:} & \url{https://csdesk.vercel.app/} \\
+    \end{tabular}
+
+    \vspace{1.5cm}
+    {\large\bfseries Team Members\par}
+    \vspace{0.4cm}
+    \begin{tabular}{cc}
+        \toprule
+        \textbf{Name} & \textbf{Roll / ID Number} \\
+        \midrule
+        Yogesh & 12342420 \\
+        Durgesh Nama & 12340720 \\
+        \bottomrule
+    \end{tabular}
+
+    \vfill
+    {\large November 2026\par}
+\end{titlepage}
+
+% ==============================================================================
+% INDEX PAGE (TABLE OF CONTENTS)
+% ==============================================================================
+\pagenumbering{roman}
+\tableofcontents
+\newpage
+\pagenumbering{arabic}
+
+% ==============================================================================
+% SECTION 1: INTRODUCTION & SYSTEM ARCHITECTURE
+% ==============================================================================
+\section{Introduction and System Architecture}
+
+\subsection{Motivation}
+Academic office administration in a growing Computer Science and Engineering (CSE) department involves recurring, high-stakes operational workflows every semester: assigning Teaching Assistants (TAs) to theory and lab courses without timetable clashes, scheduling laboratory sessions across specialized hardware rooms (such as GPU-equipped labs), and maintaining uniform software environments across hundreds of laboratory workstations. Historically, these workflows relied on manual spreadsheets, ad-hoc email threads, and physical USB or manual SSH scripts across lab rooms—processes that are slow, error-prone, and difficult to audit across semesters.
+
+\textbf{CSDesk (CS Office Automation)} is a unified, role-based web platform built for the CSE Department at \textbf{IIT Bhilai} and deployed at \url{https://csdesk.vercel.app/}. It automates these three core departmental pillars under a single authenticated portal.
+
+\subsection{Technology Stack}
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Frontend:} React 19, Vite, Tailwind CSS, Lucide Icons, React Router. Deployed on Vercel.
+    \item \textbf{Backend API \& Real-Time Hub:} Node.js, Express 5, Multer (file uploads), WebSockets (\texttt{ws}) for real-time lab agent communication, and Server-Sent Events (SSE) for live solver progress streaming.
+    \item \textbf{Database \& Authentication:} Supabase (PostgreSQL with Row-Level Security policies) and Google/Institutional OAuth restricted to \texttt{@iitbhilai.ac.in} accounts, augmented with role-based access control (\texttt{admin}, \texttt{faculty}, \texttt{ta}, \texttt{student}).
+    \item \textbf{Optimization Engine:} Python 3 with Google OR-Tools \textbf{CP-SAT} (Constraint Programming over Boolean Satisfiability) solver, plus custom coordinate-based PDF table parsers (\texttt{pdfplumber}).
+\end{itemize}
+
+% ==============================================================================
+% SECTION 2: MODULE 1 - TA ALLOCATION
+% ==============================================================================
+\section{Module 1: TA Allocation}
+
+\subsection{Problem Statement}
+Every academic semester, the CSE department must assign eligible M.Tech and PhD Teaching Assistants to courses requesting TA support. A valid and high-quality allocation must satisfy both \textbf{hard constraints} (which can never be violated) and \textbf{soft departmental priorities}:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Zero Timetable Clashes (Hard):} Both M.Tech and PhD TAs may be enrolled in coursework. A TA cannot be assigned to a course if any of their enrolled classes (lecture, tutorial, or lab) overlap with the target course's teaching hours.
+    \item \textbf{Workload Cap (Hard):} Each TA is assigned to at most $M$ courses (default $M = 1$; if $M > 1$, assigned courses must not overlap in time).
+    \item \textbf{Demand Cap (Hard):} No course receives more TAs than its requested headcount.
+    \item \textbf{Base Coverage (Tier 1):} Every requesting course must receive at least one TA before any course receives surplus staffing, preventing starvation.
+    \item \textbf{Proportional Demand Sharing (Tier 2):} When demand exceeds supply, shortages are shared proportionally across courses rather than starving large or small courses.
+    \item \textbf{Thesis Supervisor Priority (Tier 3):} If a faculty member requests their own thesis student, matching the student with their advisor is prioritized over non-essential tail seats.
+    \item \textbf{Faculty Preferences \& Seat Filling (Tiers 4--5):} Honour faculty-submitted ranked TA lists (Rank 1 $>$ Rank 2 $>$ \dots) and maximize total fulfilled seats.
+\end{enumerate}
+
+\subsection{Data Preprocessing and Pipeline}
+The TA Allocation module processes four primary inputs, scoped per academic semester via the \texttt{semester\_id} composite schema (\texttt{005\_semesters.sql}):
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Course Catalog PDF (\texttt{parse\_courses.py}):} Extracts CSE/CS\&DS courses (\texttt{CS*}/\texttt{DS*} series) using word $x$-coordinate column bands and vertical row-gap clustering ($\Delta y < 8.0\text{ pt}$). Venue suffixes (e.g., \texttt{M12/ED-1 201}) are stripped to retain pure slot specifications (\texttt{M12}).
+    \item \textbf{Common Timetable PDF (\texttt{parse\_timetable.py}):} Locates the period time headers, detects the lunch break gap dynamically, and builds a concrete $(\text{day}, \text{start\_time})$ coordinate grid. Theory slots (\texttt{A}--\texttt{M}, \texttt{X}) occupy single 55-minute cells; lab slots (\texttt{N}--\texttt{W}) span three consecutive 180-minute periods in either the morning or afternoon half.
+    \item \textbf{Course Slot Resolution (\texttt{resolve\_slots}):} Because lab blocks (\texttt{N}--\texttt{W}) physically overlay theory slots (\texttt{A}--\texttt{M}), clashes are never compared by slot letters. Every course's lecture, tutorial, and lab specs (including sub-slot digits such as \texttt{A12} for occurrences 1--2, or \texttt{U23} for hours 2--3 of lab block \texttt{U}, or compound lab strings like \texttt{OWQSU}) are resolved into exact sets of $(\text{day}, \text{start\_time})$ cells.
+    \item \textbf{TA Availability \& Eligibility Matrix:} For every TA (M.Tech and PhD), registered course codes from \texttt{course\_registration} are resolved into busy time cells (supporting cross-listed slash codes like \texttt{DSL504/DS504}). A pair $(\text{TA } r, \text{Course } c)$ becomes a CP-SAT Boolean variable $x_{r,c}$ \textit{only if} $\text{Busy}(r) \cap \text{Footprint}(c) = \emptyset$. This pre-filtering guarantees zero timetable clashes while shrinking the model size.
+    \item \textbf{Fuzzy Name Matching:} Faculty names vary across PDFs and CSVs (e.g., ``Prof. Souradyuti Poul'' vs ``Dr. Souradyuti Paul''). Honorifics (\texttt{Dr}, \texttt{Prof}, \texttt{Mr}, etc.) are stripped and names are matched via token subset comparison and Levenshtein edit distance ($\le 1$) to accurately identify thesis supervisor pairs.
+\end{enumerate}
+
+\subsection{CP-SAT Mathematical Formulation}
+Let $C$ be the set of requesting courses, $R$ be the set of TAs, and $E(c) \subseteq R$ be the clash-free eligible TAs for course $c$ with demand $N_c = \text{tas\_required}(c)$.
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Decision Variables:}
+    \begin{align*}
+        x_{r,c} &\in \{0, 1\} && \forall c \in C,\, r \in E(c) \quad (\text{1 if TA } r \text{ is assigned to course } c) \\
+        \text{has}_c &\in \{0, 1\} && \forall c \in C \quad (\text{1 if course } c \text{ gets } \ge 1 \text{ TA}) \\
+        y_{c,k} &\in \{0, 1\} && \forall c \in C,\, k \in \{1, \dots, N_c\} \quad (\text{diminishing-returns seat variables})
+    \end{align*}
+    \item \textbf{Hard Constraints:}
+    \begin{align*}
+        \sum_{r \in E(c)} x_{r,c} &\le N_c && \forall c \in C \quad (\text{Demand Ceiling}) \\
+        \sum_{c \in C : r \in E(c)} x_{r,c} &\le M && \forall r \in R \quad (\text{TA Workload Cap, } M=1) \\
+        \sum_{k=1}^{N_c} y_{c,k} &= \sum_{r \in E(c)} x_{r,c} && \forall c \in C \quad (\text{Proportional Seat Counting})
+    \end{align*}
+    \item \textbf{Objective Function (Maximize $Z$):}
+    \begin{multline*}
+        \max Z = \sum_{c \in C} \Bigg[ W_{\text{HAS\_ANY}} \cdot \text{has}_c + \sum_{k=1}^{N_c} \left( W_{\text{SEAT}} + \left\lfloor \frac{W_{\text{PROP}}(N_c - k)}{N_c} \right\rfloor \right) y_{c,k} \\
+        + \sum_{r \in E(c)} \left( W_{\text{SUP}} \cdot \mathbb{I}_{\text{sup}}(r,c) + P_{r,c} \right) x_{r,c} \Bigg]
+    \end{multline*}
+    where $\mathbb{I}_{\text{sup}}(r,c) = 1$ if $r$'s thesis advisor teaches $c$, and preference score $P_{r,c} = \max(W_{\text{PREF\_TOP}} - W_{\text{PREF\_STEP}} \cdot (\text{rank}_{r,c} - 1),\; \lfloor W_{\text{PREF\_TOP}}/10 \rfloor)$.
+\end{itemize}
+
+\subsection{Weight Matrix and Tradeoff Analysis (\texttt{Test2} Dataset)}
+We evaluated the CP-SAT solver on the real departmental dataset in \texttt{Test2} (\textbf{34 courses}, \textbf{21 requesting courses}, \textbf{90 total seats requested}, \textbf{95 available TAs}, \textbf{158 course registrations}, \textbf{52 faculty-submitted preferences}, and \textbf{36 supervisor-student preference pairs}) across 8 systematic weight profiles.
+
+\begin{table}[H]
+\centering
+\caption{Solver Performance Across Weight Configurations on \texttt{Test2} Dataset}
+\label{tab:weight-matrix}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lrrrrrccccc@{}}
+\toprule
+\textbf{Weight Profile} & \textbf{HAS\_ANY} & \textbf{PROP} & \textbf{SEAT} & \textbf{SUP} & \textbf{PREF/Step} & \textbf{Seats Filled} & \textbf{Prefs Met} & \textbf{Sup Prefs Met} & \textbf{Guide Match} & \textbf{Time} \\
+\midrule
+1. Zero Coverage Priority & 0 & 10000 & 1000 & 200 & 100 / 5 & 88/90 (97.8\%) & 26/52 (50.0\%) & 23/36 (63.9\%) & 35 & 0.07s \\
+2. Seat-Dominant (Legacy) & 100000 & 10000 & 1000 & 200 & 100 / 5 & 88/90 (97.8\%) & 26/52 (50.0\%) & 23/36 (63.9\%) & 35 & 0.08s \\
+3. Mild Preference Boost & 100000 & 8000 & 800 & 1000 & 400 / 20 & 82/90 (91.1\%) & 32/52 (61.5\%) & 29/36 (80.6\%) & 41 & 0.08s \\
+4. Moderate Balanced & 100000 & 7000 & 700 & 1500 & 500 / 25 & 80/90 (88.9\%) & 34/52 (65.4\%) & 31/36 (86.1\%) & 43 & 0.08s \\
+\textbf{5. Universal Balanced (Active)} & \textbf{100000} & \textbf{6000} & \textbf{600} & \textbf{1800} & \textbf{600 / 30} & \textbf{75/90 (83.3\%)} & \textbf{35/52 (67.3\%)} & \textbf{33/36 (91.7\%)} & \textbf{47} & \textbf{0.08s} \\
+6. Preference-Lean & 100000 & 5000 & 500 & 2000 & 800 / 40 & 73/90 (81.1\%) & 36/52 (69.2\%) & 34/36 (94.4\%) & 48 & 0.08s \\
+7. Supervisor-Heavy & 100000 & 3000 & 400 & 5000 & 1500 / 50 & 69/90 (76.7\%) & 36/52 (69.2\%) & 34/36 (94.4\%) & 50 & 0.07s \\
+8. Extreme Supervisor & 100000 & 1500 & 200 & 15000 & 3000 / 75 & 69/90 (76.7\%) & 36/52 (69.2\%) & 34/36 (94.4\%) & 50 & 0.08s \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\subsubsection{Key Tradeoffs Observed}
+\begin{itemize}[leftmargin=*]
+    \item \textbf{The Clash-Constrained vs. Universal TA Bottleneck:} 1st-year M.Tech students (\texttt{M26CS*}) are enrolled in heavy core coursework (\texttt{CSL502}, \texttt{CSL503}, \texttt{CSL605}, \texttt{CSL606}), making them ineligible for most lab-heavy courses (\texttt{CSL100/MAL400}, \texttt{CSL301}, \texttt{CSL559}) and eligible for only 7 out of 21 requesting courses (such as \texttt{CSL201/MAL503}). Conversely, senior thesis scholars have zero coursework and act as ``universal TAs.''
+    \item \textbf{Why Legacy Weights (Profile 2) Missed 13 Supervisor Pairs:} Because a single filled seat was worth $1{,}000$--$11{,}000$ points while $W_{\text{SUP}} = 200$, the solver treated preferences as negligible noise and sent senior thesis scholars to rescue tail seats in lab-heavy courses, while filling \texttt{CSL201/MAL503} with clash-constrained \texttt{M26CS*} students.
+    \item \textbf{Universal Balanced Weights (Profile 5, Active in Production):} Setting $W_{\text{HAS\_ANY}}=100{,}000$, $W_{\text{PROP}}=6{,}000$, $W_{\text{SUP}}=1{,}800$, $W_{\text{SEAT}}=600$, $W_{\text{PREF\_TOP}}=600$ ($-30$/rank) achieves a Pareto-optimal generic balance: zero courses are starved, \textbf{91.7\% of supervisor preferences (33/36)} and \textbf{67.3\% of all preferences (35/52)} are satisfied, and total department guide matches rise from 35 to 47. Note that 2 supervisor preferences (\texttt{P25CS503} for \texttt{CSL100} and \texttt{P25CS501} for \texttt{CSL301}) are mathematically impossible under \textit{any} weight due to direct enrolled-course timetable clashes.
+\end{itemize}
+
+\subsection{Implemented Features}
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Multi-Semester Isolation:} Full lifecycle support across multiple academic semesters (\texttt{semesters} table, \texttt{X-Semester-Id} header scoping, create/rename/activate modals).
+    \item \textbf{Live SSE Streaming \& Unmet Reason Breakdown:} Real-time solver progress ticks and an interactive \textit{Preferences Not Met \& Reason Breakdown} panel classifying every unmet request (Timetable Clash with exact conflicting courses, Assigned to Guide's Course, Assigned Elsewhere, Capacity Filled, or Not in Pool).
+    \item \textbf{Role-Based Portals \& Reallocation Workflow:}
+    \begin{itemize}
+        \item \textit{Faculty Portal:} Requirement submission during collection, and a 4-tab per-course allocation view (\textit{Assigned TAs}, \textit{Demanded TAs} with live outcomes, \textit{Request TA} add/delete forms, and \textit{Submitted Requests} status).
+        \item \textit{Admin Portal:} Request approval queue with automatic conflict/reallocation warnings, clash-aware manual TA add/remove dropdowns (color-coded green for free, amber for clash, red for busy), and a testing impersonation switcher.
+        \item \textit{TA \& Student Portals:} Personalized duty schedules, co-TA directories, and published course directory.
+    \end{itemize}
+\end{itemize}
+
+% ==============================================================================
+% SECTION 3: MODULE 2 - LAB ALLOCATION
+% ==============================================================================
+\section{Module 2: Lab Allocation}
+
+\subsection{Problem Statement}
+The CSE department operates multiple physical computing laboratories with heterogeneous seating capacities and hardware capabilities (such as GPU workstations in \texttt{TL1 (106)} with 84 seats and GPU support, \texttt{TL2 (105)} with 20 seats, \texttt{ED1} rooms 308/312/320, and \texttt{ED2 (302)}). Manually assigning lab courses from the institute timetable to physical rooms faces several challenges:
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Capacity Overflow:} A large first-year course (e.g., 120+ students) exceeds the capacity of any single physical lab room and must be automatically split into balanced batches.
+    \item \textbf{Hardware Scarcity:} Courses requiring GPUs (e.g., Machine Learning, Deep Learning) must strictly be placed in GPU-enabled rooms, and non-GPU courses must not waste scarce GPU labs when regular rooms are available.
+    \item \textbf{No Double Booking:} Two batches cannot occupy the same physical room during any overlapping time period.
+    \item \textbf{Multi-Hour Contiguous Sessions:} Lab sessions run in fixed durations (e.g., 2-hour or 3-hour blocks) mapped from timetable slot codes.
+\end{enumerate}
+
+\subsection{Approach and Data Pipeline}
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{PDF Ingestion (\texttt{lab\_allocation/parser.py} \& \texttt{parse\_timetable.py}):} Extracts lab-bearing CSE courses ($P > 0$ in the \texttt{L-T-P} column, excluding project courses like \texttt{BTech Project}) and maps timetable slot letters (e.g., \texttt{O}, \texttt{U23}) to concrete \texttt{Day\_Time} period strings via \texttt{mapSlotToPeriods}.
+    \item \textbf{Automatic Batch Splitting \& Session Slicing (\texttt{lab\_allocation/solver.py}):} For each course $c$, the solver computes the maximum capacity $C_{\max}$ among hardware-compatible labs. If $\text{student\_count} > C_{\max}$, the course is automatically partitioned into $k = \lceil \text{student\_count} / C_{\max} \rceil$ equal batches. Available periods are sliced into discrete sessions of length $\text{duration}$.
+    \item \textbf{Database Persistence:} Labs, courses, and timetable slots are persisted in PostgreSQL (\texttt{lab\_allocation\_labs}, \texttt{lab\_allocation\_courses}, \texttt{lab\_allocation\_timetable}) via \texttt{/api/optimization/data} and \texttt{/api/optimization/save}.
+\end{enumerate}
+
+\subsection{CP-SAT Mathematical Formulation}
+Let $B$ be the set of course batches, $S(b)$ be the available time sessions for batch $b$, and $L$ be the set of physical labs.
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Decision Variables:} $x_{b,s,l} \in \{0, 1\}$ equals 1 if batch $b$ is assigned to session $s \in S(b)$ in lab $l \in L$.
+    \item \textbf{Hard Constraints:}
+    \begin{align*}
+        \sum_{s \in S(b)} \sum_{l \in L} x_{b,s,l} &= 1 && \forall b \in B \quad (\text{Every batch assigned once}) \\
+        x_{b,s,l} &= 0 && \text{if } \text{cap}(l) < \text{size}(b) \text{ or } (\text{gpu}(b) \land \neg \text{gpu}(l)) \\
+        \sum_{b \in B} \sum_{s \in S(b) : p \in s} x_{b,s,l} &\le 1 && \forall p \in \text{Periods},\, l \in L \quad (\text{No Double Booking})
+    \end{align*}
+    \item \textbf{Objective Function (Minimize Waste):}
+    \begin{equation*}
+        \min \sum_{b, s, l} \left( 1{,}000{,}000 \cdot \mathbb{I}[\neg \text{gpu}(b) \land \text{gpu}(l)] + (\text{cap}(l) - \text{size}(b)) \right) x_{b,s,l}
+    \end{equation*}
+    The $1{,}000{,}000$ penalty strictly reserves GPU labs for GPU-requiring courses, while $(\text{cap}(l) - \text{size}(b))$ enforces tight-fit room packing so large rooms remain free for large batches.
+\end{itemize}
+
+\subsection{Results and Features}
+Running the solver on the department's course dataset (\texttt{dummy\_data.json}) produces conflict-free room assignments in under a second (e.g., splitting \texttt{CSP352} into balanced batches and tightly packing \texttt{CSL301} and \texttt{CSL302} into \texttt{ED1 (320)} and \texttt{TL1 (106)}). The React UI (\texttt{LabAllocation.jsx}) provides PDF upload and review modals, CSV template export for lab inventory, a visual weekly timetable grid, and instant re-optimization.
+
+% ==============================================================================
+% SECTION 4: MODULE 3 - LAB SOFTWARE INSTALLATION
+% ==============================================================================
+\section{Module 3: Lab Software Installation (Lab Automation)}
+
+\subsection{Problem Statement}
+The CSE department manages over 320 student workstations distributed across \texttt{TL1 (106)}, \texttt{TL2 (105)}, \texttt{ED1 (308/312/320)}, and \texttt{ED2 (302)}. Installing course-specific software stacks (such as PyTorch, CUDA toolkits, GCC/G++, VS Code, or \TeX{} Live), running OS security updates, or checking disk health manually across individual machines does not scale. Traditional SSH loops fail behind NAT/firewalls, lack live per-PC output streaming, and offer no centralized audit trail.
+
+\subsection{Architecture and Solution}
+CSDesk implements a **reverse-WebSocket push architecture** (\texttt{LabAgentHub}) where every lab workstation initiates an outbound persistent connection to the master server:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Zero-Dependency Python Agent (\texttt{csdesk\_agent.py}):} A lightweight systemd daemon running on each lab PC. It implements an RFC 6455 WebSocket client (\texttt{SimpleWebSocket}) using only the Python standard library—requiring zero \texttt{pip} dependencies. On startup, it registers its hostname, lab identifier, IP, and OS info, and maintains a 5-second heartbeat loop with automatic reconnection.
+    \item \textbf{Dual WebSocket Hub (\texttt{labAgentHub.js}):}
+    \begin{itemize}
+        \item \texttt{/ws/lab-agent}: Accepts authenticated agent registrations, tracks live fleet status, monitors 25-second heartbeat timeouts, and dispatches shell scripts.
+        \item \texttt{/ws/lab-admin}: Streams live \texttt{FLEET\_STATE}, \texttt{AGENT\_CONNECTED}, \texttt{EXECUTION\_LOG}, and \texttt{EXECUTION\_RESULT} events directly to the React admin console.
+    \end{itemize}
+    \item \textbf{One-Line Deployment (\texttt{/api/lab-automation/install.sh}):} Dynamically generates a root bash installer that downloads \texttt{csdesk\_agent.py} to \texttt{/opt/csdesk-agent}, configures \texttt{/etc/systemd/system/csdesk-agent.service} with target lab flags, and enables the service immediately. A corresponding \texttt{uninstall.sh} performs clean teardown.
+\end{enumerate}
+
+\subsection{Security and Reliability}
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Token \& Role-Based Access Control:} Agent registration and execution payloads require a shared secret (\texttt{LAB\_AGENT\_TOKEN}); HTTP execution and PC-renaming endpoints are strictly guarded by \texttt{requireAuth} and \texttt{requireAdmin} middleware.
+    \item \textbf{Destructive Command Guardrails:} Before spawning any subprocess, \texttt{csdesk\_agent.py} inspects scripts against blocked destructive patterns (\texttt{rm -rf /}, fork bombs, \texttt{mkfs}, raw disk writes \texttt{> /dev/sd}, \texttt{dd if=}) and aborts execution with exit code 126 if matched.
+    \item \textbf{Persistent Telemetry:} Execution state, active console tabs, and per-PC logs are persisted across browser reloads in \texttt{localStorage} and archived on each agent at \texttt{/tmp/csdesk-last-run.log}.
+\end{itemize}
+
+\subsection{Features}
+The \texttt{LabAutomation.jsx} console provides lab-level filtering (\texttt{TL1}, \texttt{TL2}, \texttt{ED1}, \texttt{ED2}, or \texttt{ALL}), granular multi-PC checkboxes, custom display aliasing (\texttt{/rename-pc}), one-click command presets (APT updates, Python AI stack, GCC/Git, VS Code, LaTeX, System Health), and a tabbed live terminal displaying real-time \texttt{stdout}/\texttt{stderr} streams and exit codes for every target machine.
+
+% ==============================================================================
+% SECTION 5: CONCLUSION
+% ==============================================================================
+\section{Conclusion}
+CSDesk unifies three critical CSE departmental operations—TA Allocation, Laboratory Room Scheduling, and Remote Lab Fleet Automation—into a single, production-deployed platform (\url{https://csdesk.vercel.app/}). By combining formal Google OR-Tools CP-SAT constraint optimization with coordinate-accurate PDF ingestion, semester-isolated PostgreSQL storage, and real-time WebSocket fleet orchestration, CSDesk eliminates manual scheduling errors, provides transparent explainability for allocation tradeoffs, and reduces multi-hour lab administration tasks to a single click.
+
+\end{document}
